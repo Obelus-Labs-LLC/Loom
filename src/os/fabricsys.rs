@@ -8,6 +8,7 @@
 extern crate alloc;
 use alloc::format;
 use alloc::string::String;
+use alloc::vec::Vec;
 
 /// Syscall numbers for FabricOS
 /// 
@@ -273,16 +274,16 @@ pub struct FabricSocket;
 impl FabricSocket {
     /// Create a new socket
     /// Returns socket fd or negative error code
-    pub fn socket(domain: Domain, sock_type: SockType, protocol: Protocol) -> Result<RawFd, i32> {
+    /// FabricOS ABI: rdi = type (1=stream,2=dgram), rsi = protocol (6=tcp,17=udp)
+    pub fn socket(_domain: Domain, sock_type: SockType, protocol: Protocol) -> Result<RawFd, i32> {
         let ret = unsafe {
-            syscall3(
+            syscall2(
                 Syscall::Socket as usize,
-                domain as usize,
-                sock_type as usize,
-                protocol as usize,
+                sock_type as usize,   // rdi = socket type
+                protocol as usize,    // rsi = protocol
             )
         };
-        
+
         if ret < 0 {
             Err(-ret as i32)
         } else {
@@ -291,16 +292,23 @@ impl FabricSocket {
     }
     
     /// Bind socket to address
+    /// FabricOS ABI: rdi = fd, rsi = ip_u32 (big-endian), rdx = port
     pub fn bind(fd: RawFd, addr: &SockAddrIn) -> Result<(), i32> {
+        let ip_u32 = ((addr.addr[0] as usize) << 24)
+            | ((addr.addr[1] as usize) << 16)
+            | ((addr.addr[2] as usize) << 8)
+            | (addr.addr[3] as usize);
+        let port = u16::from_be(addr.port) as usize;
+
         let ret = unsafe {
             syscall3(
                 Syscall::Bind as usize,
                 fd.as_raw() as usize,
-                addr as *const _ as usize,
-                core::mem::size_of::<SockAddrIn>() as usize,
+                ip_u32,
+                port,
             )
         };
-        
+
         if ret < 0 {
             Err(-ret as i32)
         } else {
@@ -347,16 +355,24 @@ impl FabricSocket {
     }
     
     /// Connect to remote address
+    /// FabricOS ABI: rdi = fd, rsi = ip_u32 (big-endian), rdx = port
     pub fn connect(fd: RawFd, addr: &SockAddrIn) -> Result<(), i32> {
+        // Pack IPv4 as big-endian u32 for kernel ABI
+        let ip_u32 = ((addr.addr[0] as usize) << 24)
+            | ((addr.addr[1] as usize) << 16)
+            | ((addr.addr[2] as usize) << 8)
+            | (addr.addr[3] as usize);
+        let port = u16::from_be(addr.port) as usize;
+
         let ret = unsafe {
             syscall3(
                 Syscall::Connect as usize,
                 fd.as_raw() as usize,
-                addr as *const _ as usize,
-                core::mem::size_of::<SockAddrIn>() as usize,
+                ip_u32,
+                port,
             )
         };
-        
+
         if ret < 0 {
             Err(-ret as i32)
         } else {
@@ -417,17 +433,10 @@ impl FabricSocket {
         }
     }
     
-    /// Close socket (uses Close syscall)
+    /// Close socket — uses shutdown syscall (17) since FabricOS
+    /// doesn't have a separate socket close path
     pub fn close(fd: RawFd) -> Result<(), i32> {
-        let ret = unsafe {
-            syscall1(Syscall::Close as usize, fd.as_raw() as usize)
-        };
-        
-        if ret < 0 {
-            Err(-ret as i32)
-        } else {
-            Ok(())
-        }
+        Self::shutdown(fd, 2) // SHUT_RDWR
     }
 }
 
@@ -596,13 +605,13 @@ pub struct FabricDns;
 
 impl FabricDns {
     /// Resolve a hostname to IPv4 address using syscall 22
-    /// 
+    ///
     /// # Arguments
     /// * `hostname` - Hostname to resolve (e.g., "example.com")
-    /// 
+    ///
     /// # Returns
     /// Packed IPv4 address as big-endian u32 on success
-    /// 
+    ///
     /// # Errors
     /// Returns DnsError on failure with retry logic:
     /// - Retries 3x with 100ms delay on timeout
@@ -615,14 +624,14 @@ impl FabricDns {
         }
         buf[..host_bytes.len()].copy_from_slice(host_bytes);
         buf[host_bytes.len()] = 0; // Null terminator
-        
+
         // Retry loop: 3 attempts with 100ms delay
         for attempt in 0..3 {
             let ret = unsafe {
                 syscall2(
                     Syscall::DnsResolve as usize,
                     buf.as_ptr() as usize,
-                    0, // flags
+                    host_bytes.len(), // hostname length (kernel expects rsi=name_len)
                 )
             };
             
