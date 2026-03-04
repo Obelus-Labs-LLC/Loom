@@ -73,91 +73,426 @@ pub extern "C" fn _start() -> ! {
     use os::fabricsys::*;
     use alloc::vec;
     use alloc::vec::Vec;
+    use alloc::string::String;
     
-    // Initialize display via syscalls
+    // Display constants
     let width = 1280u32;
     let height = 800u32;
     
-    // Allocate display surface (syscall 18)
+    // Color constants (BGRA format)
+    const COLOR_BLACK: u32 = 0xFF000000;
+    const COLOR_DARK_GRAY: u32 = 0xFF222222;
+    const COLOR_RED: u32 = 0xFF0000FF;
+    const COLOR_WHITE: u32 = 0xFFFFFFFF;
+    const COLOR_GREEN: u32 = 0xFF00FF00;
+    const COLOR_YELLOW: u32 = 0xFF00FFFF;
+    
+    // Initialize display
     let surface_id = match FabricDisplay::alloc_surface(width, height) {
         Ok(id) => id,
-        Err(_) => {
-            // Fatal: can't allocate display
-            loop { unsafe { core::arch::asm!("hlt"); } }
+        Err(_) => fatal_error("Display alloc failed"),
+    };
+    
+    let mut buffer: Vec<u32> = vec![0; (width * height) as usize];
+    
+    // Show boot screen
+    clear_screen(&mut buffer, COLOR_DARK_GRAY);
+    draw_text(&mut buffer, width, 10, 10, "Loom HTTP Fetch Test", COLOR_WHITE);
+    draw_text(&mut buffer, width, 10, 30, "Step 1: DNS Resolve...", COLOR_YELLOW);
+    blit_and_present(surface_id, &buffer);
+    
+    // Hardcoded target
+    const TARGET_HOST: &str = "example.com";
+    const TARGET_PATH: &str = "/";
+    
+    // Step 1: DNS Resolve
+    sleep_ms(500); // Visual delay
+    
+    let ip = match FabricDns::resolve(TARGET_HOST) {
+        Ok(ip) => {
+            let ip_bytes = FabricDns::ip_to_bytes(ip);
+            let msg = format!("DNS OK: {}.{}.{}.{}", 
+                ip_bytes[0], ip_bytes[1], ip_bytes[2], ip_bytes[3]);
+            draw_text(&mut buffer, width, 10, 50, &msg, COLOR_GREEN);
+            blit_and_present(surface_id, &buffer);
+            ip
+        }
+        Err(e) => {
+            let msg = format!("DNS FAILED: {:?}", e);
+            show_error_screen(surface_id, &mut buffer, width, &msg);
         }
     };
     
-    // Create back buffer
-    let mut buffer: Vec<u32> = vec![0; (width * height) as usize];
+    sleep_ms(200);
     
-    // Color constants (BGRA format)
-    let warm_gray: u32 = 0xFFF7F6F5;
-    let red: u32 = 0xFF0000FF;
-    let green: u32 = 0xFF00FF00;
-    let blue: u32 = 0xFFFF0000;
-    let yellow: u32 = 0xFF00FFFF;
+    // Step 2: HTTP GET
+    draw_text(&mut buffer, width, 10, 70, "Step 2: HTTP GET...", COLOR_YELLOW);
+    blit_and_present(surface_id, &buffer);
     
-    // Animation frame counter
-    let mut frame: u32 = 0;
+    let response = match HttpClient::get_bytes(ip, TARGET_HOST, TARGET_PATH, 80) {
+        Ok(bytes) => {
+            let msg = format!("HTTP OK: {} bytes", bytes.len());
+            draw_text(&mut buffer, width, 10, 90, &msg, COLOR_GREEN);
+            blit_and_present(surface_id, &buffer);
+            bytes
+        }
+        Err(e) => {
+            let msg = format!("HTTP FAILED: {:?}", e);
+            show_error_screen(surface_id, &mut buffer, width, &msg);
+        }
+    };
     
+    sleep_ms(200);
+    
+    // Step 3: Render response
+    draw_text(&mut buffer, width, 10, 110, "Step 3: Rendering...", COLOR_YELLOW);
+    blit_and_present(surface_id, &buffer);
+    sleep_ms(200);
+    
+    // Clear to dark gray and render the response
+    clear_screen(&mut buffer, COLOR_DARK_GRAY);
+    
+    // Draw header
+    draw_text(&mut buffer, width, 10, 10, "=== HTTP RESPONSE ===", COLOR_GREEN);
+    draw_text(&mut buffer, width, 10, 30, TARGET_HOST, COLOR_WHITE);
+    
+    // Render first 500 bytes as hex dump
+    let display_len = response.len().min(500);
+    let mut y = 60;
+    let mut x = 10;
+    
+    for (i, byte) in response[..display_len].iter().enumerate() {
+        // Draw hex value
+        let hex = byte_to_hex(*byte);
+        draw_text(&mut buffer, width, x, y, &hex, COLOR_WHITE);
+        
+        x += 30;
+        if x > width - 40 || *byte == b'\n' {
+            x = 10;
+            y += 20;
+            if y > height - 30 {
+                break; // Screen full
+            }
+        }
+        
+        // Add space between every 8 bytes
+        if (i + 1) % 8 == 0 && x > 10 {
+            x += 10;
+        }
+    }
+    
+    // Show truncation notice if needed
+    if response.len() > 500 {
+        let msg = format!("... ({} more bytes)", response.len() - 500);
+        y += 20;
+        draw_text(&mut buffer, width, 10, y, &msg, COLOR_YELLOW);
+    }
+    
+    blit_and_present(surface_id, &buffer);
+    
+    // Done - halt forever
     loop {
-        frame += 1;
-        
-        // Clear to warm gray
-        for pixel in buffer.iter_mut() {
-            *pixel = warm_gray;
-        }
-        
-        // Draw colored rectangles
-        draw_rect(&mut buffer, width, height, 100, 100, 200, 100, red);
-        draw_rect(&mut buffer, width, height, 350, 100, 200, 100, green);
-        draw_rect(&mut buffer, width, height, 600, 100, 200, 100, blue);
-        
-        // Draw animated rectangle
-        let x = 100 + (frame % 200);
-        draw_rect(&mut buffer, width, height, x, 400, 50, 50, yellow);
-        
-        // Test socket syscall - draw indicator
-        match FabricSocket::socket(Domain::Inet, SockType::Stream, Protocol::Tcp) {
-            Ok(fd) => {
-                // Success - green indicator
-                draw_rect(&mut buffer, width, height, width - 50, 10, 20, 20, green);
-                let _ = FabricSocket::close(fd);
-            }
-            Err(_) => {
-                // Failed - red indicator  
-                draw_rect(&mut buffer, width, height, width - 50, 10, 20, 20, red);
-            }
-        }
-        
-        // Blit buffer to surface (syscall 19)
-        let _ = FabricDisplay::blit_surface(
-            surface_id,
-            buffer.as_ptr(),
-            buffer.len() * 4
-        );
-        
-        // Present to screen (syscall 20)
-        let _ = FabricDisplay::present_surface(surface_id);
-        
-        // Simple delay
-        for _ in 0..500000 {
-            unsafe { core::arch::asm!("nop"); }
-        }
+        unsafe { core::arch::asm!("hlt"); }
     }
 }
 
 #[cfg(not(feature = "std"))]
-fn draw_rect(buffer: &mut [u32], width: u32, _height: u32, x: u32, y: u32, w: u32, h: u32, color: u32) {
-    for dy in 0..h {
-        for dx in 0..w {
-            let px = x + dx;
-            let py = y + dy;
-            if px < width && py < _height {
-                let offset = (py * width + px) as usize;
-                buffer[offset] = color;
+fn fatal_error(msg: &str) -> ! {
+    // Can't display, just halt
+    loop {
+        unsafe { core::arch::asm!("hlt"); }
+    }
+}
+
+#[cfg(not(feature = "std"))]
+fn show_error_screen(surface_id: u64, buffer: &mut [u32], width: u32, msg: &str) -> ! {
+    use os::fabricsys::*;
+    
+    const COLOR_RED: u32 = 0xFF0000FF;
+    const COLOR_WHITE: u32 = 0xFFFFFFFF;
+    
+    // Clear to red
+    for pixel in buffer.iter_mut() {
+        *pixel = COLOR_RED;
+    }
+    
+    // Draw error message
+    draw_text(buffer, width, 10, 10, "ERROR:", COLOR_WHITE);
+    draw_text(buffer, width, 10, 40, msg, COLOR_WHITE);
+    draw_text(buffer, width, 10, 100, "System Halted", COLOR_WHITE);
+    
+    // Present
+    let _ = FabricDisplay::blit_surface(surface_id, buffer.as_ptr(), buffer.len() * 4);
+    let _ = FabricDisplay::present_surface(surface_id);
+    
+    // Halt forever
+    loop {
+        unsafe { core::arch::asm!("hlt"); }
+    }
+}
+
+#[cfg(not(feature = "std"))]
+fn clear_screen(buffer: &mut [u32], color: u32) {
+    for pixel in buffer.iter_mut() {
+        *pixel = color;
+    }
+}
+
+#[cfg(not(feature = "std"))]
+fn blit_and_present(surface_id: u64, buffer: &[u32]) {
+    use os::fabricsys::*;
+    let _ = FabricDisplay::blit_surface(surface_id, buffer.as_ptr(), buffer.len() * 4);
+    let _ = FabricDisplay::present_surface(surface_id);
+}
+
+#[cfg(not(feature = "std"))]
+fn sleep_ms(ms: u32) {
+    for _ in 0..ms * 10000 {
+        unsafe { core::arch::asm!("nop"); }
+    }
+}
+
+/// Convert a byte to hex string (e.g., 0x4A -> "4A")
+#[cfg(not(feature = "std"))]
+fn byte_to_hex(byte: u8) -> alloc::string::String {
+    use alloc::string::String;
+    const HEX_CHARS: &[u8] = b"0123456789ABCDEF";
+    let mut result = String::with_capacity(2);
+    result.push(HEX_CHARS[(byte >> 4) as usize] as char);
+    result.push(HEX_CHARS[(byte & 0xF) as usize] as char);
+    result
+}
+
+/// Simple bitmap font (5x7) for ASCII 32-127
+#[cfg(not(feature = "std"))]
+static FONT_5X7: &[u8] = &[
+    // Space (32)
+    0x00, 0x00, 0x00, 0x00, 0x00,
+    // ! (33)
+    0x00, 0x00, 0x5F, 0x00, 0x00,
+    // " (34)
+    0x00, 0x07, 0x00, 0x07, 0x00,
+    // # (35)
+    0x14, 0x7F, 0x14, 0x7F, 0x14,
+    // $ (36)
+    0x24, 0x2A, 0x7F, 0x2A, 0x12,
+    // % (37)
+    0x23, 0x13, 0x08, 0x64, 0x62,
+    // & (38)
+    0x36, 0x49, 0x55, 0x22, 0x50,
+    // ' (39)
+    0x00, 0x05, 0x03, 0x00, 0x00,
+    // ( (40)
+    0x00, 0x1C, 0x22, 0x41, 0x00,
+    // ) (41)
+    0x00, 0x41, 0x22, 0x1C, 0x00,
+    // * (42)
+    0x08, 0x2A, 0x1C, 0x2A, 0x08,
+    // + (43)
+    0x08, 0x08, 0x3E, 0x08, 0x08,
+    // , (44)
+    0x00, 0x50, 0x30, 0x00, 0x00,
+    // - (45)
+    0x08, 0x08, 0x08, 0x08, 0x08,
+    // . (46)
+    0x00, 0x60, 0x60, 0x00, 0x00,
+    // / (47)
+    0x20, 0x10, 0x08, 0x04, 0x02,
+    // 0 (48)
+    0x3E, 0x51, 0x49, 0x45, 0x3E,
+    // 1 (49)
+    0x00, 0x42, 0x7F, 0x40, 0x00,
+    // 2 (50)
+    0x42, 0x61, 0x51, 0x49, 0x46,
+    // 3 (51)
+    0x21, 0x41, 0x45, 0x4B, 0x31,
+    // 4 (52)
+    0x18, 0x14, 0x12, 0x7F, 0x10,
+    // 5 (53)
+    0x27, 0x45, 0x45, 0x45, 0x39,
+    // 6 (54)
+    0x3C, 0x4A, 0x49, 0x49, 0x30,
+    // 7 (55)
+    0x01, 0x71, 0x09, 0x05, 0x03,
+    // 8 (56)
+    0x36, 0x49, 0x49, 0x49, 0x36,
+    // 9 (57)
+    0x06, 0x49, 0x49, 0x29, 0x1E,
+    // : (58)
+    0x00, 0x36, 0x36, 0x00, 0x00,
+    // ; (59)
+    0x00, 0x56, 0x36, 0x00, 0x00,
+    // < (60)
+    0x00, 0x08, 0x14, 0x22, 0x41,
+    // = (61)
+    0x14, 0x14, 0x14, 0x14, 0x14,
+    // > (62)
+    0x41, 0x22, 0x14, 0x08, 0x00,
+    // ? (63)
+    0x02, 0x01, 0x51, 0x09, 0x06,
+    // @ (64)
+    0x32, 0x49, 0x79, 0x41, 0x3E,
+    // A (65)
+    0x7E, 0x11, 0x11, 0x11, 0x7E,
+    // B (66)
+    0x7F, 0x49, 0x49, 0x49, 0x36,
+    // C (67)
+    0x3E, 0x41, 0x41, 0x41, 0x22,
+    // D (68)
+    0x7F, 0x41, 0x41, 0x22, 0x1C,
+    // E (69)
+    0x7F, 0x49, 0x49, 0x49, 0x41,
+    // F (70)
+    0x7F, 0x09, 0x09, 0x01, 0x01,
+    // G (71)
+    0x3E, 0x41, 0x41, 0x51, 0x32,
+    // H (72)
+    0x7F, 0x08, 0x08, 0x08, 0x7F,
+    // I (73)
+    0x00, 0x41, 0x7F, 0x41, 0x00,
+    // J (74)
+    0x20, 0x40, 0x41, 0x3F, 0x01,
+    // K (75)
+    0x7F, 0x08, 0x14, 0x22, 0x41,
+    // L (76)
+    0x7F, 0x40, 0x40, 0x40, 0x40,
+    // M (77)
+    0x7F, 0x02, 0x04, 0x02, 0x7F,
+    // N (78)
+    0x7F, 0x04, 0x08, 0x10, 0x7F,
+    // O (79)
+    0x3E, 0x41, 0x41, 0x41, 0x3E,
+    // P (80)
+    0x7F, 0x09, 0x09, 0x09, 0x06,
+    // Q (81)
+    0x3E, 0x41, 0x51, 0x21, 0x5E,
+    // R (82)
+    0x7F, 0x09, 0x19, 0x29, 0x46,
+    // S (83)
+    0x46, 0x49, 0x49, 0x49, 0x31,
+    // T (84)
+    0x01, 0x01, 0x7F, 0x01, 0x01,
+    // U (85)
+    0x3F, 0x40, 0x40, 0x40, 0x3F,
+    // V (86)
+    0x1F, 0x20, 0x40, 0x20, 0x1F,
+    // W (87)
+    0x7F, 0x20, 0x18, 0x20, 0x7F,
+    // X (88)
+    0x63, 0x14, 0x08, 0x14, 0x63,
+    // Y (89)
+    0x03, 0x04, 0x78, 0x04, 0x03,
+    // Z (90)
+    0x61, 0x51, 0x49, 0x45, 0x43,
+    // [ (91)
+    0x00, 0x00, 0x7F, 0x41, 0x41,
+    // \ (92)
+    0x02, 0x04, 0x08, 0x10, 0x20,
+    // ] (93)
+    0x41, 0x41, 0x7F, 0x00, 0x00,
+    // ^ (94)
+    0x04, 0x02, 0x01, 0x02, 0x04,
+    // _ (95)
+    0x40, 0x40, 0x40, 0x40, 0x40,
+    // ` (96)
+    0x00, 0x01, 0x02, 0x04, 0x00,
+    // a (97)
+    0x20, 0x54, 0x54, 0x54, 0x78,
+    // b (98)
+    0x7F, 0x48, 0x44, 0x44, 0x38,
+    // c (99)
+    0x38, 0x44, 0x44, 0x44, 0x20,
+    // d (100)
+    0x38, 0x44, 0x44, 0x48, 0x7F,
+    // e (101)
+    0x38, 0x54, 0x54, 0x54, 0x18,
+    // f (102)
+    0x08, 0x7E, 0x09, 0x01, 0x02,
+    // g (103)
+    0x08, 0x14, 0x54, 0x54, 0x3C,
+    // h (104)
+    0x7F, 0x08, 0x04, 0x04, 0x78,
+    // i (105)
+    0x00, 0x44, 0x7D, 0x40, 0x00,
+    // j (106)
+    0x20, 0x40, 0x44, 0x3D, 0x00,
+    // k (107)
+    0x00, 0x7F, 0x10, 0x28, 0x44,
+    // l (108)
+    0x00, 0x41, 0x7F, 0x40, 0x00,
+    // m (109)
+    0x7C, 0x04, 0x18, 0x04, 0x78,
+    // n (110)
+    0x7C, 0x08, 0x04, 0x04, 0x78,
+    // o (111)
+    0x38, 0x44, 0x44, 0x44, 0x38,
+    // p (112)
+    0x7C, 0x14, 0x14, 0x14, 0x08,
+    // q (113)
+    0x08, 0x14, 0x14, 0x18, 0x7C,
+    // r (114)
+    0x7C, 0x08, 0x04, 0x04, 0x08,
+    // s (115)
+    0x48, 0x54, 0x54, 0x54, 0x20,
+    // t (116)
+    0x04, 0x3F, 0x44, 0x40, 0x20,
+    // u (117)
+    0x3C, 0x40, 0x40, 0x20, 0x7C,
+    // v (118)
+    0x1C, 0x20, 0x40, 0x20, 0x1C,
+    // w (119)
+    0x3C, 0x40, 0x30, 0x40, 0x3C,
+    // x (120)
+    0x44, 0x28, 0x10, 0x28, 0x44,
+    // y (121)
+    0x0C, 0x50, 0x50, 0x50, 0x3C,
+    // z (122)
+    0x44, 0x64, 0x54, 0x4C, 0x44,
+    // { (123)
+    0x00, 0x08, 0x36, 0x41, 0x00,
+    // | (124)
+    0x00, 0x00, 0x7F, 0x00, 0x00,
+    // } (125)
+    0x00, 0x41, 0x36, 0x08, 0x00,
+    // ~ (126)
+    0x08, 0x08, 0x2A, 0x1C, 0x08,
+];
+
+/// Draw a single character using 5x7 bitmap font
+#[cfg(not(feature = "std"))]
+fn draw_char(buffer: &mut [u32], screen_width: u32, x: u32, y: u32, c: char, color: u32) {
+    let idx = if c as u32 >= 32 && c as u32 <= 126 {
+        (c as u32 - 32) as usize * 5
+    } else {
+        0 // Space for unknown chars
+    };
+    
+    if idx + 4 >= FONT_5X7.len() {
+        return;
+    }
+    
+    for col in 0..5 {
+        let col_data = FONT_5X7[idx + col];
+        for row in 0..7 {
+            if (col_data >> row) & 1 != 0 {
+                let px = x + col as u32;
+                let py = y + row as u32;
+                if px < screen_width && py < 800 {
+                    let offset = (py * screen_width + px) as usize;
+                    buffer[offset] = color;
+                }
             }
         }
+    }
+}
+
+/// Draw a string at (x, y)
+#[cfg(not(feature = "std"))]
+fn draw_text(buffer: &mut [u32], screen_width: u32, x: u32, y: u32, text: &str, color: u32) {
+    let mut cx = x;
+    for c in text.chars() {
+        draw_char(buffer, screen_width, cx, y, c, color);
+        cx += 6; // 5px char + 1px spacing
     }
 }
 

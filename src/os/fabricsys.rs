@@ -32,6 +32,9 @@ pub enum Syscall {
     DisplayBlit = 19,     // Blit buffer to surface
     DisplayPresent = 20,  // Present surface to screen
     
+    // DNS syscall (Phase 11)
+    DnsResolve = 22,      // Resolve hostname to IPv4
+    
     // File syscalls (to be implemented in FabricOS)
     Read = 100,
     Write = 101,
@@ -62,6 +65,47 @@ pub const SYS_SHUTDOWN: u64 = 17;
 pub const SYS_DISPLAY_ALLOC: u64 = 18;
 pub const SYS_DISPLAY_BLIT: u64 = 19;
 pub const SYS_DISPLAY_PRESENT: u64 = 20;
+pub const SYS_DNS_RESOLVE: u64 = 22;
+
+/// DNS resolution error
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DnsError {
+    Timeout = 1,
+    NotFound = 2,
+    KernelError = 3,
+}
+
+/// HTTP client error
+#[derive(Debug, Clone)]
+pub enum HttpError {
+    ConnectFailed(i32),
+    SendFailed(i32),
+    RecvFailed(i32),
+    DnsFailed(DnsError),
+    SocketFailed(i32),
+}
+
+/// Yield to kernel (syscall 0 or dedicated yield)
+#[inline(always)]
+pub fn yield_syscall() {
+    unsafe {
+        // Use a simple sleep/yield syscall or just nop
+        // For now, use syscall 0 as yield
+        core::arch::asm!(
+            "syscall",
+            in("rax") 0usize,
+            out("rcx") _, out("r11") _,
+            options(nostack, preserves_flags)
+        );
+    }
+}
+
+/// Sleep for approximately ms milliseconds (busy wait with yields)
+pub fn sleep_ms(ms: u32) {
+    for _ in 0..ms * 1000 {
+        unsafe { core::arch::asm!("nop") };
+    }
+}
 
 /// Raw syscall - x86_64 Linux ABI
 /// rcx and r11 are clobbered by syscall instruction
@@ -510,6 +554,157 @@ impl FabricDisplay {
         } else {
             Ok(())
         }
+    }
+}
+
+/// DNS Resolution for FabricOS
+pub struct FabricDns;
+
+impl FabricDns {
+    /// Resolve a hostname to IPv4 address using syscall 22
+    /// 
+    /// # Arguments
+    /// * `hostname` - Hostname to resolve (e.g., "example.com")
+    /// 
+    /// # Returns
+    /// Packed IPv4 address as big-endian u32 on success
+    /// 
+    /// # Errors
+    /// Returns DnsError on failure with retry logic:
+    /// - Retries 3x with 100ms delay on timeout
+    pub fn resolve(hostname: &str) -> Result<u32, DnsError> {
+        // Convert hostname to bytes with null terminator
+        let host_bytes = hostname.as_bytes();
+        let mut buf = [0u8; 256];
+        if host_bytes.len() >= 255 {
+            return Err(DnsError::KernelError);
+        }
+        buf[..host_bytes.len()].copy_from_slice(host_bytes);
+        buf[host_bytes.len()] = 0; // Null terminator
+        
+        // Retry loop: 3 attempts with 100ms delay
+        for attempt in 0..3 {
+            let ret = unsafe {
+                syscall2(
+                    Syscall::DnsResolve as usize,
+                    buf.as_ptr() as usize,
+                    0, // flags
+                )
+            };
+            
+            if ret >= 0 {
+                // Success: return packed IPv4
+                return Ok(ret as u32);
+            }
+            
+            let err = -ret as i32;
+            match err {
+                1 | 110 => { // ETIMEDOUT or EAGAIN - retry
+                    if attempt < 2 {
+                        sleep_ms(100);
+                        continue;
+                    }
+                    return Err(DnsError::Timeout);
+                }
+                2 => return Err(DnsError::NotFound),
+                _ => return Err(DnsError::KernelError),
+            }
+        }
+        
+        Err(DnsError::Timeout)
+    }
+    
+    /// Convert packed u32 IP to byte array [a, b, c, d]
+    pub fn ip_to_bytes(ip: u32) -> [u8; 4] {
+        ip.to_be_bytes()
+    }
+}
+
+/// Improved HTTP client for FabricOS
+pub struct HttpClient;
+
+impl HttpClient {
+    /// Perform HTTP GET request and return raw bytes
+    /// 
+    /// # Arguments
+    /// * `ip` - Packed IPv4 address (big-endian u32)
+    /// * `host` - Host header value (e.g., "example.com")
+    /// * `path` - URL path (e.g., "/" or "/index.html")
+    /// * `port` - Port number (usually 80 for HTTP)
+    /// 
+    /// # Returns
+    /// Raw response bytes (headers + body)
+    pub fn get_bytes(ip: u32, host: &str, path: &str, port: u16) -> Result<alloc::vec::Vec<u8>, HttpError> {
+        use alloc::vec::Vec;
+        
+        // 1. Create socket
+        let sock = FabricSocket::socket(Domain::Inet, SockType::Stream, Protocol::Tcp)
+            .map_err(|e| HttpError::SocketFailed(e))?;
+        
+        // 2. Prepare address
+        let ip_bytes = ip.to_be_bytes();
+        let addr = SockAddrIn::new(ip_bytes, port);
+        
+        // 3. Connect
+        FabricSocket::connect(sock, &addr)
+            .map_err(|e| HttpError::ConnectFailed(e))?;
+        
+        // 4. Build and send HTTP request
+        let request = format!(
+            "GET {} HTTP/1.1\r\nHost: {}\r\nUser-Agent: Loom/0.1\r\nConnection: close\r\n\r\n",
+            path, host
+        );
+        
+        FabricSocket::send(sock, request.as_bytes(), 0)
+            .map_err(|e| HttpError::SendFailed(e))?;
+        
+        // 5. Receive response with polling for WouldBlock
+        let mut response = Vec::new();
+        let mut buf = [0u8; 4096];
+        let mut empty_count = 0;
+        
+        loop {
+            match FabricSocket::recv(sock, &mut buf, 0) {
+                Ok(0) => {
+                    // Connection closed
+                    empty_count += 1;
+                    if empty_count > 10 {
+                        break;
+                    }
+                    yield_syscall();
+                }
+                Ok(n) => {
+                    response.extend_from_slice(&buf[..n]);
+                    empty_count = 0;
+                }
+                Err(e) => {
+                    if e == 11 || e == 11 { // EAGAIN / EWOULDBLOCK
+                        yield_syscall();
+                        continue;
+                    }
+                    // Close socket on error
+                    let _ = FabricSocket::close(sock);
+                    return Err(HttpError::RecvFailed(e));
+                }
+            }
+            
+            // Safety limit: 1MB max response
+            if response.len() > 1_048_576 {
+                break;
+            }
+        }
+        
+        // 6. Close socket
+        let _ = FabricSocket::close(sock);
+        
+        Ok(response)
+    }
+    
+    /// Convenience: resolve host then fetch
+    pub fn get(host: &str, path: &str) -> Result<Vec<u8>, HttpError> {
+        let ip = FabricDns::resolve(host)
+            .map_err(|e| HttpError::DnsFailed(e))?;
+        Self::get_bytes(ip, host, path, 80)
     }
 }
 
