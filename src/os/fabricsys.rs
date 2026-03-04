@@ -48,6 +48,14 @@ pub enum Syscall {
     TlsRecv = 27,         // Receive encrypted data
     TlsClose = 28,        // Close TLS session
     
+    // Window Manager syscalls (Phase 16)
+    WmCreate = 29,        // Create window
+    WmDestroy = 30,       // Destroy window
+    WmBlit = 31,          // Blit to window
+    WmMoveResize = 32,    // Move/resize window
+    WmFocus = 33,         // Focus window
+    WmEvent = 34,         // Poll window event
+    
     // File syscalls (to be implemented in FabricOS)
     Read = 100,
     Write = 101,
@@ -85,6 +93,14 @@ pub const SYS_TLS_SEND: u64 = 26;
 pub const SYS_TLS_RECV: u64 = 27;
 pub const SYS_TLS_CLOSE: u64 = 28;
 pub const SYS_KB_READ: u64 = 21;
+
+// Window Manager syscalls (Phase 16)
+pub const SYS_WM_CREATE: u64 = 29;
+pub const SYS_WM_DESTROY: u64 = 30;
+pub const SYS_WM_BLIT: u64 = 31;
+pub const SYS_WM_MOVE_RESIZE: u64 = 32;
+pub const SYS_WM_FOCUS: u64 = 33;
+pub const SYS_WM_EVENT: u64 = 34;
 
 /// Poll events
 pub const POLLIN: u16 = 0x01;
@@ -197,6 +213,24 @@ unsafe fn syscall3(n: usize, a1: usize, a2: usize, a3: usize) -> isize {
         in("rdi") a1,
         in("rsi") a2,
         in("rdx") a3,
+        out("rcx") _, out("r11") _,
+        options(nostack, preserves_flags)
+    );
+    ret
+}
+
+#[cfg(target_arch = "x86_64")]
+#[inline(always)]
+unsafe fn syscall5(n: usize, a1: usize, a2: usize, a3: usize, a4: usize, a5: usize) -> isize {
+    let ret: isize;
+    core::arch::asm!(
+        "syscall",
+        inlateout("rax") n => ret,
+        in("rdi") a1,
+        in("rsi") a2,
+        in("rdx") a3,
+        in("r10") a4,
+        in("r8") a5,
         out("rcx") _, out("r11") _,
         options(nostack, preserves_flags)
     );
@@ -1084,8 +1118,8 @@ impl FabricKeyboard {
         }
     }
     
-    /// Convert scancode to key
-    fn scancode_to_key(scancode: u8) -> Key {
+    /// Convert scancode to key (public for WM event parsing)
+    pub fn scancode_to_key(scancode: u8) -> Key {
         // Simple scancode to ASCII mapping (no shift handling for now)
         match scancode {
             0x01 => Key::Escape,
@@ -1166,6 +1200,343 @@ pub fn get_tick() -> u64 {
 
 pub fn increment_tick() {
     unsafe { TICK_COUNT += 1; }
+}
+
+/// Window Manager integration for FabricOS (Phase 16)
+pub struct FabricWindow;
+
+/// Window handle
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct WindowId(pub u32);
+
+/// Window event types
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum WindowEvent {
+    None,
+    KeyPress(Key),        // Keyboard input
+    Focus,                // Window gained focus
+    Blur,                 // Window lost focus
+    Close,                // Window close requested (click X, Alt+F4)
+    Resize { width: u32, height: u32 }, // Window resized
+    Move { x: i32, y: i32 },            // Window moved
+}
+
+/// Window creation flags
+pub const WM_FLAG_NONE: u32 = 0;
+pub const WM_FLAG_RESIZABLE: u32 = 1;
+pub const WM_FLAG_NO_DECORATION: u32 = 2;
+pub const WM_FLAG_ALWAYS_ON_TOP: u32 = 4;
+
+impl FabricWindow {
+    /// Create a new window
+    /// 
+    /// # Arguments
+    /// * `title` - Window title (max 128 chars)
+    /// * `x`, `y` - Window position (centered if negative)
+    /// * `width`, `height` - Window size
+    /// * `flags` - Creation flags
+    /// 
+    /// # Returns
+    /// Window ID on success
+    pub fn create(title: &str, x: i32, y: i32, width: u32, height: u32, flags: u32) -> Result<WindowId, i32> {
+        // Validate title length
+        if title.len() > 128 {
+            return Err(-1);
+        }
+        
+        // Pack x,y into a single usize (16 bits each)
+        let xy_packed = ((x as u32 as usize) << 16) | (y as u32 as usize);
+        
+        let ret = unsafe {
+            syscall6(
+                Syscall::WmCreate as usize,
+                title.as_ptr() as usize,
+                title.len() as usize,
+                xy_packed,
+                width as usize,
+                height as usize,
+                flags as usize,
+            )
+        };
+        
+        if ret < 0 {
+            Err(ret as i32)
+        } else {
+            Ok(WindowId(ret as u32))
+        }
+    }
+    
+    /// Destroy a window
+    pub fn destroy(window: WindowId) -> Result<(), i32> {
+        let ret = unsafe {
+            syscall1(Syscall::WmDestroy as usize, window.0 as usize)
+        };
+        
+        if ret < 0 {
+            Err(ret as i32)
+        } else {
+            Ok(())
+        }
+    }
+    
+    /// Blit pixel buffer to window
+    /// 
+    /// # Arguments
+    /// * `window` - Target window
+    /// * `buffer` - BGRA pixel data
+    /// * `width`, `height` - Buffer dimensions (must match window client area)
+    pub fn blit(window: WindowId, buffer: &[u32], width: u32, height: u32) -> Result<(), i32> {
+        if buffer.len() < (width * height) as usize {
+            return Err(-1);
+        }
+        
+        let ret = unsafe {
+            syscall5(
+                Syscall::WmBlit as usize,
+                window.0 as usize,
+                buffer.as_ptr() as usize,
+                buffer.len() * 4, // size in bytes
+                width as usize,
+                height as usize,
+            )
+        };
+        
+        if ret < 0 {
+            Err(ret as i32)
+        } else {
+            Ok(())
+        }
+    }
+    
+    /// Move and/or resize window
+    pub fn move_resize(window: WindowId, x: i32, y: i32, width: u32, height: u32) -> Result<(), i32> {
+        let ret = unsafe {
+            syscall5(
+                Syscall::WmMoveResize as usize,
+                window.0 as usize,
+                x as usize,
+                y as usize,
+                width as usize,
+                height as usize,
+            )
+        };
+        
+        if ret < 0 {
+            Err(ret as i32)
+        } else {
+            Ok(())
+        }
+    }
+    
+    /// Set window focus
+    pub fn focus(window: WindowId) -> Result<(), i32> {
+        let ret = unsafe {
+            syscall1(Syscall::WmFocus as usize, window.0 as usize)
+        };
+        
+        if ret < 0 {
+            Err(ret as i32)
+        } else {
+            Ok(())
+        }
+    }
+    
+    /// Poll for window event (non-blocking)
+    /// 
+    /// # Returns
+    /// WindowEvent - KeyPress, Focus, Blur, Close, Resize, or None
+    pub fn poll_event() -> WindowEvent {
+        let mut event_buf = [0u8; 16]; // Buffer for event data
+        
+        let ret = unsafe {
+            syscall2(
+                Syscall::WmEvent as usize,
+                event_buf.as_mut_ptr() as usize,
+                event_buf.len() as usize,
+            )
+        };
+        
+        if ret <= 0 {
+            return WindowEvent::None;
+        }
+        
+        // Parse event from buffer
+        // Format: [event_type: u8, data...]
+        match event_buf[0] {
+            1 => { // KeyPress
+                if ret >= 2 {
+                    let key = FabricKeyboard::scancode_to_key(event_buf[1]);
+                    WindowEvent::KeyPress(key)
+                } else {
+                    WindowEvent::None
+                }
+            }
+            2 => WindowEvent::Focus,
+            3 => WindowEvent::Blur,
+            4 => WindowEvent::Close,
+            5 => { // Resize
+                if ret >= 9 {
+                    let width = u32::from_le_bytes([event_buf[1], event_buf[2], event_buf[3], event_buf[4]]);
+                    let height = u32::from_le_bytes([event_buf[5], event_buf[6], event_buf[7], event_buf[8]]);
+                    WindowEvent::Resize { width, height }
+                } else {
+                    WindowEvent::None
+                }
+            }
+            6 => { // Move
+                if ret >= 9 {
+                    let x = i32::from_le_bytes([event_buf[1], event_buf[2], event_buf[3], event_buf[4]]);
+                    let y = i32::from_le_bytes([event_buf[5], event_buf[6], event_buf[7], event_buf[8]]);
+                    WindowEvent::Move { x, y }
+                } else {
+                    WindowEvent::None
+                }
+            }
+            _ => WindowEvent::None,
+        }
+    }
+    
+    /// Check if window manager is available
+    /// Tries to create and immediately destroy a test window
+    pub fn is_available() -> bool {
+        // Try to create a 1x1 pixel window off-screen
+        match Self::create("", -1000, -1000, 1, 1, WM_FLAG_NO_DECORATION) {
+            Ok(win) => {
+                let _ = Self::destroy(win);
+                true
+            }
+            Err(_) => false,
+        }
+    }
+    
+    /// Get screen dimensions from window manager
+    /// Returns (width, height) or (0, 0) if not available
+    pub fn get_screen_size() -> (u32, u32) {
+        // Create a window at (0,0) with size 0,0 - WM returns screen size
+        match Self::create("", 0, 0, 0, 0, WM_FLAG_NONE) {
+            Ok(win) => {
+                // Check if we got an event with screen size
+                for _ in 0..10 {
+                    if let WindowEvent::Resize { width, height } = Self::poll_event() {
+                        let _ = Self::destroy(win);
+                        return (width, height);
+                    }
+                    sleep_ms(1);
+                }
+                let _ = Self::destroy(win);
+                (0, 0)
+            }
+            Err(_) => (0, 0),
+        }
+    }
+}
+
+/// Display backend - either fullscreen or windowed
+pub enum DisplayBackend {
+    Fullscreen { surface_id: u64 },
+    Windowed { window: WindowId, width: u32, height: u32 },
+}
+
+impl DisplayBackend {
+    /// Create appropriate display backend
+    /// Tries windowed first, falls back to fullscreen
+    pub fn create(title: &str, width: u32, height: u32) -> Result<Self, i32> {
+        // Try windowed mode first
+        if FabricWindow::is_available() {
+            // Center on screen (assume 1280x800 default)
+            let screen_w = 1280i32;
+            let screen_h = 800i32;
+            let x = (screen_w - width as i32) / 2;
+            let y = (screen_h - height as i32) / 2;
+            
+            match FabricWindow::create(title, x, y, width, height, WM_FLAG_RESIZABLE) {
+                Ok(win) => {
+                    return Ok(DisplayBackend::Windowed { 
+                        window: win, 
+                        width, 
+                        height 
+                    });
+                }
+                Err(_) => {
+                    // Fall through to fullscreen
+                }
+            }
+        }
+        
+        // Fallback to fullscreen display syscalls
+        match FabricDisplay::alloc_surface(width, height) {
+            Ok(surface_id) => {
+                Ok(DisplayBackend::Fullscreen { surface_id })
+            }
+            Err(e) => Err(e),
+        }
+    }
+    
+    /// Blit buffer to display
+    pub fn blit(&self, buffer: &[u32]) -> Result<(), i32> {
+        match self {
+            DisplayBackend::Fullscreen { surface_id } => {
+                FabricDisplay::blit_surface(*surface_id, buffer.as_ptr(), buffer.len() * 4)
+                    .map(|_| ())
+                    .map_err(|e| e)
+            }
+            DisplayBackend::Windowed { window, width, height } => {
+                FabricWindow::blit(*window, buffer, *width, *height)
+            }
+        }
+    }
+    
+    /// Present/update display
+    pub fn present(&self) -> Result<(), i32> {
+        match self {
+            DisplayBackend::Fullscreen { surface_id } => {
+                FabricDisplay::present_surface(*surface_id)
+                    .map_err(|e| e)
+            }
+            DisplayBackend::Windowed { .. } => {
+                // Windowed mode blit includes present
+                Ok(())
+            }
+        }
+    }
+    
+    /// Cleanup
+    pub fn destroy(&self) {
+        match self {
+            DisplayBackend::Fullscreen { surface_id } => {
+                let _ = FabricDisplay::free_surface(*surface_id);
+            }
+            DisplayBackend::Windowed { window, .. } => {
+                let _ = FabricWindow::destroy(*window);
+            }
+        }
+    }
+    
+    /// Get dimensions
+    pub fn size(&self) -> (u32, u32) {
+        match self {
+            DisplayBackend::Fullscreen { .. } => (1280, 800), // Default fullscreen
+            DisplayBackend::Windowed { width, height, .. } => (*width, *height),
+        }
+    }
+    
+    /// Poll for input event
+    pub fn poll_input(&self) -> Key {
+        match self {
+            DisplayBackend::Fullscreen { .. } => {
+                // Use direct keyboard syscall
+                FabricKeyboard::read()
+            }
+            DisplayBackend::Windowed { .. } => {
+                // Use window event system
+                match FabricWindow::poll_event() {
+                    WindowEvent::KeyPress(key) => key,
+                    WindowEvent::Close => Key::Escape, // Map close to Escape
+                    _ => Key::None,
+                }
+            }
+        }
+    }
 }
 
 #[cfg(test)]

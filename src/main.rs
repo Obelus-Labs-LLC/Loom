@@ -1,4 +1,4 @@
-//! Loom Browser - Phase L7: TLS + Interactive Browsing
+//! Loom Browser - Phase L8: Window Manager Integration
 //!
 //! Build for FabricOS: cargo +nightly build -Z build-std=core,compiler_builtins,alloc
 
@@ -61,7 +61,7 @@ fn main() {
 }
 
 // ============================================
-// FABRICOS NO-STD IMPLEMENTATION - PHASE L7
+// FABRICOS NO-STD IMPLEMENTATION - PHASE L8
 // ============================================
 #[cfg(not(feature = "std"))]
 mod fabric_os {
@@ -109,7 +109,7 @@ mod fabric_os {
         Error,        // Error page displayed
     }
     
-    /// Browser state
+    /// Browser state with dynamic sizing
     pub struct Browser {
         pub url: String,
         pub page_title: String,
@@ -121,6 +121,11 @@ mod fabric_os {
         pub status_message: String,
         pub history: Vec<String>,
         pub history_pos: usize,
+        // Dynamic dimensions
+        pub width: u32,
+        pub height: u32,
+        pub margin_x: u32,
+        pub margin_y: u32,
     }
     
     impl Browser {
@@ -132,11 +137,34 @@ mod fabric_os {
                 scroll_offset: 0,
                 mode: BrowserMode::Viewing,
                 url_buffer: String::from("http://example.com/"),
-                cursor_pos: 19, // After "http://example.com/"
+                cursor_pos: 19,
                 status_message: String::from("Ready"),
                 history: Vec::new(),
                 history_pos: 0,
+                width: WINDOW_WIDTH,
+                height: WINDOW_HEIGHT,
+                margin_x: 20,
+                margin_y: 70,
             }
+        }
+        
+        pub fn set_content_area(&mut self, width: u32, height: u32) {
+            self.width = width;
+            self.height = height;
+            // Re-wrap content if exists
+            if !self.content_lines.is_empty() {
+                let content = self.content_lines.join(" ");
+                self.set_content(&content);
+            }
+        }
+        
+        pub fn content_width(&self) -> u32 {
+            self.width.saturating_sub(2 * self.margin_x)
+        }
+        
+        pub fn max_lines(&self) -> usize {
+            let content_height = self.height.saturating_sub(self.margin_y + STATUS_HEIGHT + 10);
+            (content_height / LINE_HEIGHT) as usize
         }
         
         pub fn navigate(&mut self, url: &str) {
@@ -148,7 +176,7 @@ mod fabric_os {
         }
         
         pub fn scroll_down(&mut self, lines: usize) {
-            let max_scroll = self.content_lines.len().saturating_sub(MAX_LINES);
+            let max_scroll = self.content_lines.len().saturating_sub(self.max_lines());
             self.scroll_offset = (self.scroll_offset + lines).min(max_scroll);
         }
         
@@ -157,15 +185,16 @@ mod fabric_os {
         }
         
         pub fn page_down(&mut self) {
-            self.scroll_down(MAX_LINES - 2);
+            self.scroll_down(self.max_lines().saturating_sub(2));
         }
         
         pub fn page_up(&mut self) {
-            self.scroll_up(MAX_LINES - 2);
+            self.scroll_up(self.max_lines().saturating_sub(2));
         }
         
         pub fn set_content(&mut self, text: &str) {
-            self.content_lines = wrap_text(text, (CONTENT_WIDTH / CHAR_WIDTH) as usize);
+            let chars_per_line = (self.content_width() / CHAR_WIDTH) as usize;
+            self.content_lines = wrap_text(text, chars_per_line);
             self.scroll_offset = 0;
         }
         
@@ -195,16 +224,21 @@ mod fabric_os {
         }
     }
     
+    /// Default window size
+    pub const WINDOW_WIDTH: u32 = 800;
+    pub const WINDOW_HEIGHT: u32 = 600;
+    
     /// Main entry point
     pub fn main() -> ! {
-        // Initialize display
-        let surface_id = match FabricDisplay::alloc_surface(SCREEN_WIDTH, SCREEN_HEIGHT) {
-            Ok(id) => id,
-            Err(_) => fatal_error("Display alloc failed"),
+        // Initialize display backend (windowed preferred, fullscreen fallback)
+        let backend = match DisplayBackend::create("Loom", WINDOW_WIDTH, WINDOW_HEIGHT) {
+            Ok(b) => b,
+            Err(_) => fatal_error("Failed to create display"),
         };
         
-        let mut buffer: Vec<u32> = vec![C_DARK_GRAY; (SCREEN_WIDTH * SCREEN_HEIGHT) as usize];
-        let mut display = Display::new(surface_id, &mut buffer);
+        let (width, height) = backend.size();
+        let mut buffer: Vec<u32> = vec![C_DARK_GRAY; (width * height) as usize];
+        let mut display = Display::new(backend, &mut buffer, width, height);
         let mut browser = Browser::new();
         
         // Initial load
@@ -212,18 +246,35 @@ mod fabric_os {
         
         // Main event loop
         loop {
-            // Poll for keyboard input (non-blocking)
-            match FabricKeyboard::read() {
-                Key::None => {
-                    // No key pressed, small delay to prevent busy-waiting
+            // Poll for events (keyboard or window events)
+            match display.poll_event() {
+                WindowEvent::None => {
+                    // No event, small delay
                     sleep_ms(5);
                 }
-                key => {
+                WindowEvent::Close => {
+                    // Clean exit
+                    display.destroy();
+                    sys_exit(0);
+                }
+                WindowEvent::Resize { width, height } => {
+                    // Handle resize - recreate buffer
+                    display.resize(width, height);
+                    browser.set_content_area(width, height);
+                    display.render_browser(&browser);
+                    display.present();
+                }
+                WindowEvent::KeyPress(key) => {
                     handle_key(key, &mut browser, &mut display);
+                }
+                _ => {
+                    // Focus/blur - just re-render
+                    display.render_browser(&browser);
+                    display.present();
                 }
             }
             
-            // Re-render if in viewing mode (for smooth scroll or animations)
+            // Re-render if in viewing mode (for smooth scroll)
             if browser.mode == BrowserMode::Viewing {
                 display.render_browser(&browser);
                 display.present();
@@ -474,15 +525,17 @@ mod fabric_os {
         }
     }
     
-    /// Display structure
+    /// Display structure with window manager support
     pub struct Display<'a> {
-        surface_id: u64,
+        backend: DisplayBackend,
         buffer: &'a mut [u32],
+        width: u32,
+        height: u32,
     }
     
     impl<'a> Display<'a> {
-        pub fn new(surface_id: u64, buffer: &'a mut [u32]) -> Self {
-            Self { surface_id, buffer }
+        pub fn new(backend: DisplayBackend, buffer: &'a mut [u32], width: u32, height: u32) -> Self {
+            Self { backend, buffer, width, height }
         }
         
         pub fn clear(&mut self, color: u32) {
@@ -492,9 +545,39 @@ mod fabric_os {
         }
         
         pub fn present(&self) {
-            let _ = FabricDisplay::blit_surface(self.surface_id, self.buffer.as_ptr(), self.buffer.len() * 4);
-            let _ = FabricDisplay::present_surface(self.surface_id);
+            let _ = self.backend.blit(self.buffer);
+            let _ = self.backend.present();
         }
+        
+        pub fn poll_event(&self) -> WindowEvent {
+            match &self.backend {
+                DisplayBackend::Windowed { .. } => {
+                    FabricWindow::poll_event()
+                }
+                DisplayBackend::Fullscreen { .. } => {
+                    // Poll keyboard directly for fullscreen
+                    let key = FabricKeyboard::read();
+                    if key != Key::None {
+                        WindowEvent::KeyPress(key)
+                    } else {
+                        WindowEvent::None
+                    }
+                }
+            }
+        }
+        
+        pub fn destroy(&self) {
+            self.backend.destroy();
+        }
+        
+        pub fn resize(&mut self, width: u32, height: u32) {
+            self.width = width;
+            self.height = height;
+            // Buffer resize happens in main loop by recreating Display
+        }
+        
+        pub fn width(&self) -> u32 { self.width }
+        pub fn height(&self) -> u32 { self.height }
         
         /// Render complete browser UI
         pub fn render_browser(&mut self, browser: &Browser) {
@@ -520,7 +603,7 @@ mod fabric_os {
             self.draw_status_bar(browser);
             
             // Draw scrollbar if needed
-            if browser.content_lines.len() > MAX_LINES {
+            if browser.content_lines.len() > browser.max_lines() {
                 self.draw_scrollbar(browser);
             }
         }
@@ -531,7 +614,7 @@ mod fabric_os {
                 BrowserMode::UrlEditing => C_WARM_100,
                 _ => C_MID_GRAY,
             };
-            draw_rect(self.buffer, 0, 0, SCREEN_WIDTH, URL_BAR_HEIGHT, bg_color);
+            draw_rect(self.buffer, self.width, 0, 0, self.width, URL_BAR_HEIGHT, bg_color);
             
             // URL text
             let url_text = match browser.mode {
@@ -545,41 +628,45 @@ mod fabric_os {
             };
             
             // Draw URL with scheme highlighting
-            draw_text(self.buffer, 10, 18, url_text, text_color);
+            draw_text(self.buffer, self.width, 10, 18, url_text, text_color);
             
             // Draw cursor in edit mode
             if browser.mode == BrowserMode::UrlEditing {
                 let cursor_x = 10 + (browser.cursor_pos as u32 * CHAR_WIDTH);
-                draw_rect(self.buffer, cursor_x, 16, 2, 18, C_INFO);
+                draw_rect(self.buffer, self.width, cursor_x, 16, 2, 18, C_INFO);
             }
             
-            // Draw navigation buttons
-            draw_text(self.buffer, SCREEN_WIDTH - 150, 18, "[B]ack", 
+            // Draw navigation buttons (positioned relative to window width)
+            let back_x = self.width.saturating_sub(150);
+            let reload_x = self.width.saturating_sub(80);
+            draw_text(self.buffer, self.width, back_x, 18, "[B]ack", 
                 if browser.history_pos > 0 { C_OFF_WHITE } else { C_LIGHT_GRAY });
-            draw_text(self.buffer, SCREEN_WIDTH - 80, 18, "[R]eload", C_OFF_WHITE);
+            draw_text(self.buffer, self.width, reload_x, 18, "[R]eload", C_OFF_WHITE);
             
             // Separator line
-            draw_rect(self.buffer, 0, URL_BAR_HEIGHT, SCREEN_WIDTH, 2, C_WARM_600);
+            draw_rect(self.buffer, self.width, 0, URL_BAR_HEIGHT, self.width, 2, C_WARM_600);
         }
         
         fn draw_content(&mut self, browser: &Browser) {
+            let max_lines = browser.max_lines();
             let visible_lines = browser.content_lines.iter()
                 .skip(browser.scroll_offset)
-                .take(MAX_LINES);
+                .take(max_lines);
             
-            let mut y = MARGIN_Y;
+            let mut y = browser.margin_y;
             for line in visible_lines {
-                draw_text(self.buffer, MARGIN_X, y, line, C_OFF_WHITE);
+                draw_text(self.buffer, self.width, browser.margin_x, y, line, C_OFF_WHITE);
                 y += LINE_HEIGHT;
             }
             
             // Loading indicator
             if browser.mode == BrowserMode::Loading {
                 let msg = "Loading...";
-                let x = (SCREEN_WIDTH - (msg.len() as u32 * CHAR_WIDTH)) / 2;
-                let y = SCREEN_HEIGHT / 2;
-                draw_rect(self.buffer, x - 10, y - 10, (msg.len() as u32 * CHAR_WIDTH) + 20, 30, C_MID_GRAY);
-                draw_text(self.buffer, x, y, msg, C_WARM_500);
+                let msg_width = msg.len() as u32 * CHAR_WIDTH;
+                let x = (self.width.saturating_sub(msg_width)) / 2;
+                let y = self.height / 2;
+                draw_rect(self.buffer, self.width, x - 10, y - 10, msg_width + 20, 30, C_MID_GRAY);
+                draw_text(self.buffer, self.width, x, y, msg, C_WARM_500);
             }
         }
         
@@ -588,57 +675,65 @@ mod fabric_os {
             let cx = 100;
             let cy = 150;
             for i in 0..40 {
-                draw_pixel(self.buffer, cx + i, cy + i, C_ERROR);
-                draw_pixel(self.buffer, cx + 40 - i, cy + i, C_ERROR);
+                draw_pixel(self.buffer, self.width, self.height, cx + i, cy + i, C_ERROR);
+                draw_pixel(self.buffer, self.width, self.height, cx + 40 - i, cy + i, C_ERROR);
             }
             
             // Error title
-            draw_text(self.buffer, 160, 140, &browser.page_title, C_WHITE);
+            draw_text(self.buffer, self.width, 160, 140, &browser.page_title, C_WHITE);
             
             // Separator
-            draw_rect(self.buffer, 50, 190, SCREEN_WIDTH - 100, 2, C_LIGHT_GRAY);
+            let sep_width = self.width.saturating_sub(100);
+            draw_rect(self.buffer, self.width, 50, 190, sep_width, 2, C_LIGHT_GRAY);
             
             // Content
             self.draw_content(browser);
         }
         
         fn draw_status_bar(&mut self, browser: &Browser) {
-            let status_y = SCREEN_HEIGHT - STATUS_HEIGHT;
+            let status_y = self.height.saturating_sub(STATUS_HEIGHT);
             
             // Status bar background
-            draw_rect(self.buffer, 0, status_y, SCREEN_WIDTH, STATUS_HEIGHT, C_MID_GRAY);
+            draw_rect(self.buffer, self.width, 0, status_y, self.width, STATUS_HEIGHT, C_MID_GRAY);
             
             // Status text
-            draw_text(self.buffer, 10, status_y + 6, &browser.status_message, C_OFF_WHITE);
+            draw_text(self.buffer, self.width, 10, status_y + 6, &browser.status_message, C_OFF_WHITE);
             
             // Scroll position indicator
-            if browser.content_lines.len() > MAX_LINES {
+            if browser.content_lines.len() > browser.max_lines() {
                 let scroll_text = format!("{} / {} lines", 
                     browser.scroll_offset + 1, 
                     browser.content_lines.len());
                 let text_width = scroll_text.len() as u32 * CHAR_WIDTH;
-                draw_text(self.buffer, SCREEN_WIDTH - text_width - 10, status_y + 6, 
+                let text_x = self.width.saturating_sub(text_width + 10);
+                draw_text(self.buffer, self.width, text_x, status_y + 6, 
                     &scroll_text, C_OFF_WHITE);
             }
         }
         
         fn draw_scrollbar(&mut self, browser: &Browser) {
-            let scrollbar_x = SCREEN_WIDTH - 12;
-            let content_height = SCREEN_HEIGHT - MARGIN_Y - STATUS_HEIGHT - 10;
+            let scrollbar_x = self.width.saturating_sub(12);
+            let content_height = self.height.saturating_sub(browser.margin_y + STATUS_HEIGHT + 10);
+            let max_lines = browser.max_lines();
             
             // Track
-            draw_rect(self.buffer, scrollbar_x, MARGIN_Y, 8, content_height, C_MID_GRAY);
+            draw_rect(self.buffer, self.width, scrollbar_x, browser.margin_y, 8, content_height, C_MID_GRAY);
             
             // Thumb
-            let thumb_height = (MAX_LINES as u32 * content_height) / browser.content_lines.len() as u32;
-            let max_scroll = browser.content_lines.len() - MAX_LINES;
-            let thumb_y = if max_scroll > 0 {
-                MARGIN_Y + (browser.scroll_offset as u32 * (content_height - thumb_height)) / max_scroll as u32
+            let thumb_height = if browser.content_lines.len() > 0 {
+                ((max_lines as u32 * content_height) / browser.content_lines.len() as u32).max(20)
             } else {
-                MARGIN_Y
+                20
+            };
+            let max_scroll = browser.content_lines.len().saturating_sub(max_lines);
+            let thumb_y = if max_scroll > 0 {
+                let scroll_ratio = browser.scroll_offset as u32 * (content_height - thumb_height);
+                browser.margin_y + (scroll_ratio / max_scroll as u32)
+            } else {
+                browser.margin_y
             };
             
-            draw_rect(self.buffer, scrollbar_x, thumb_y, 8, thumb_height.max(20), C_WARM_500);
+            draw_rect(self.buffer, self.width, scrollbar_x, thumb_y, 8, thumb_height, C_WARM_500);
         }
     }
     
@@ -822,7 +917,7 @@ mod fabric_os {
         0x00,0x41,0x36,0x08,0x00, 0x08,0x08,0x2A,0x1C,0x08,
     ];
     
-    fn draw_char(buffer: &mut [u32], x: u32, y: u32, c: char, color: u32) {
+    fn draw_char(buffer: &mut [u32], width: u32, x: u32, y: u32, c: char, color: u32) {
         let idx = if c as u32 >= 32 && c as u32 <= 126 {
             (c as u32 - 32) as usize * 5
         } else {
@@ -839,35 +934,38 @@ mod fabric_os {
                 if (col_data >> row) & 1 != 0 {
                     let px = x + col as u32;
                     let py = y + row as u32;
-                    if px < SCREEN_WIDTH && py < SCREEN_HEIGHT {
-                        buffer[(py * SCREEN_WIDTH + px) as usize] = color;
+                    // Bounds check against buffer size
+                    let buf_len = buffer.len() as u32;
+                    if py * width + px < buf_len {
+                        buffer[(py * width + px) as usize] = color;
                     }
                 }
             }
         }
     }
     
-    pub fn draw_text(buffer: &mut [u32], x: u32, y: u32, text: &str, color: u32) {
+    pub fn draw_text(buffer: &mut [u32], width: u32, x: u32, y: u32, text: &str, color: u32) {
         let mut cx = x;
         for c in text.chars() {
-            draw_char(buffer, cx, y, c, color);
+            draw_char(buffer, width, cx, y, c, color);
             cx += 6;
         }
     }
     
-    fn draw_pixel(buffer: &mut [u32], x: u32, y: u32, color: u32) {
-        if x < SCREEN_WIDTH && y < SCREEN_HEIGHT {
-            buffer[(y * SCREEN_WIDTH + x) as usize] = color;
+    fn draw_pixel(buffer: &mut [u32], width: u32, height: u32, x: u32, y: u32, color: u32) {
+        if x < width && y < height {
+            buffer[(y * width + x) as usize] = color;
         }
     }
     
-    fn draw_rect(buffer: &mut [u32], x: u32, y: u32, w: u32, h: u32, color: u32) {
+    fn draw_rect(buffer: &mut [u32], width: u32, x: u32, y: u32, w: u32, h: u32, color: u32) {
+        let height = (buffer.len() as u32) / width;
         for dy in 0..h {
             for dx in 0..w {
                 let px = x + dx;
                 let py = y + dy;
-                if px < SCREEN_WIDTH && py < SCREEN_HEIGHT {
-                    buffer[(py * SCREEN_WIDTH + px) as usize] = color;
+                if px < width && py < height {
+                    buffer[(py * width + px) as usize] = color;
                 }
             }
         }
@@ -883,6 +981,21 @@ mod fabric_os {
         loop {
             unsafe { core::arch::asm!("hlt"); }
         }
+    }
+    
+    /// Exit the process
+    fn sys_exit(code: u64) -> ! {
+        unsafe {
+            core::arch::asm!(
+                "syscall",
+                in("rax") 0usize,  // SYS_EXIT
+                in("rdi") code,
+                out("rcx") _,
+                out("r11") _,
+                options(nostack)
+            );
+        }
+        loop { unsafe { core::arch::asm!("hlt"); } }
     }
 }
 
