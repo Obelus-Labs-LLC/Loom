@@ -1,4 +1,4 @@
-//! Loom Browser - Main Entry Point
+//! Loom Browser - Phase L7: TLS + Interactive Browsing
 //!
 //! Build for FabricOS: cargo +nightly build -Z build-std=core,compiler_builtins,alloc
 
@@ -45,7 +45,6 @@ unsafe impl GlobalAlloc for BumpAllocator {
         *self.heap.get() = new_heap;
         aligned
     }
-    
     unsafe fn dealloc(&self, _ptr: *mut u8, _layout: Layout) {}
 }
 
@@ -62,7 +61,7 @@ fn main() {
 }
 
 // ============================================
-// FABRICOS NO-STD IMPLEMENTATION
+// FABRICOS NO-STD IMPLEMENTATION - PHASE L7
 // ============================================
 #[cfg(not(feature = "std"))]
 mod fabric_os {
@@ -80,14 +79,10 @@ mod fabric_os {
     pub const C_LIGHT_GRAY: u32 = 0xFF666666;
     pub const C_WHITE: u32 = 0xFFFFFFFF;
     pub const C_OFF_WHITE: u32 = 0xFFE8E6E3;
-    
-    // Temperature-aware accent colors (Warm theme - default)
     pub const C_WARM_50: u32 = 0xFFF7F6F5;
     pub const C_WARM_100: u32 = 0xFFF0EDE9;
     pub const C_WARM_500: u32 = 0xFFD4A574;
     pub const C_WARM_600: u32 = 0xFFB8935F;
-    
-    // Status colors
     pub const C_SUCCESS: u32 = 0xFF4CAF50;
     pub const C_WARNING: u32 = 0xFFFFA726;
     pub const C_ERROR: u32 = 0xFFE53935;
@@ -96,16 +91,111 @@ mod fabric_os {
     // Display config
     pub const SCREEN_WIDTH: u32 = 1280;
     pub const SCREEN_HEIGHT: u32 = 800;
-    
-    // Text layout config
     pub const MARGIN_X: u32 = 20;
-    pub const MARGIN_Y: u32 = 60; // Space for URL bar
+    pub const MARGIN_Y: u32 = 70; // Space for URL bar
+    pub const URL_BAR_HEIGHT: u32 = 50;
+    pub const STATUS_HEIGHT: u32 = 24;
     pub const LINE_HEIGHT: u32 = 16;
     pub const CHAR_WIDTH: u32 = 6;
     pub const CONTENT_WIDTH: u32 = SCREEN_WIDTH - 2 * MARGIN_X;
-    pub const MAX_LINES: usize = ((SCREEN_HEIGHT - MARGIN_Y - 20) / LINE_HEIGHT) as usize;
+    pub const MAX_LINES: usize = ((SCREEN_HEIGHT - MARGIN_Y - STATUS_HEIGHT - 10) / LINE_HEIGHT) as usize;
     
-    /// Main entry point for FabricOS
+    /// Browser modes
+    #[derive(Debug, Clone, Copy, PartialEq)]
+    pub enum BrowserMode {
+        Viewing,      // Normal page viewing with scroll
+        UrlEditing,   // URL bar focused for input
+        Loading,      // Page loading in progress
+        Error,        // Error page displayed
+    }
+    
+    /// Browser state
+    pub struct Browser {
+        pub url: String,
+        pub page_title: String,
+        pub content_lines: Vec<String>,
+        pub scroll_offset: usize,
+        pub mode: BrowserMode,
+        pub url_buffer: String,
+        pub cursor_pos: usize,
+        pub status_message: String,
+        pub history: Vec<String>,
+        pub history_pos: usize,
+    }
+    
+    impl Browser {
+        pub fn new() -> Self {
+            Self {
+                url: String::from("http://example.com/"),
+                page_title: String::new(),
+                content_lines: Vec::new(),
+                scroll_offset: 0,
+                mode: BrowserMode::Viewing,
+                url_buffer: String::from("http://example.com/"),
+                cursor_pos: 19, // After "http://example.com/"
+                status_message: String::from("Ready"),
+                history: Vec::new(),
+                history_pos: 0,
+            }
+        }
+        
+        pub fn navigate(&mut self, url: &str) {
+            self.url = url.to_string();
+            self.url_buffer = url.to_string();
+            self.cursor_pos = url.len();
+            self.mode = BrowserMode::Loading;
+            self.status_message = format!("Loading {}...", url);
+        }
+        
+        pub fn scroll_down(&mut self, lines: usize) {
+            let max_scroll = self.content_lines.len().saturating_sub(MAX_LINES);
+            self.scroll_offset = (self.scroll_offset + lines).min(max_scroll);
+        }
+        
+        pub fn scroll_up(&mut self, lines: usize) {
+            self.scroll_offset = self.scroll_offset.saturating_sub(lines);
+        }
+        
+        pub fn page_down(&mut self) {
+            self.scroll_down(MAX_LINES - 2);
+        }
+        
+        pub fn page_up(&mut self) {
+            self.scroll_up(MAX_LINES - 2);
+        }
+        
+        pub fn set_content(&mut self, text: &str) {
+            self.content_lines = wrap_text(text, (CONTENT_WIDTH / CHAR_WIDTH) as usize);
+            self.scroll_offset = 0;
+        }
+        
+        pub fn add_to_history(&mut self, url: &str) {
+            if self.history.is_empty() || self.history.last().unwrap() != url {
+                self.history.push(url.to_string());
+                self.history_pos = self.history.len() - 1;
+            }
+        }
+        
+        pub fn go_back(&mut self) -> Option<String> {
+            if self.history_pos > 0 {
+                self.history_pos -= 1;
+                Some(self.history[self.history_pos].clone())
+            } else {
+                None
+            }
+        }
+        
+        pub fn go_forward(&mut self) -> Option<String> {
+            if self.history_pos + 1 < self.history.len() {
+                self.history_pos += 1;
+                Some(self.history[self.history_pos].clone())
+            } else {
+                None
+            }
+        }
+    }
+    
+    /// Main entry point
     pub fn main() -> ! {
         // Initialize display
         let surface_id = match FabricDisplay::alloc_surface(SCREEN_WIDTH, SCREEN_HEIGHT) {
@@ -115,103 +205,445 @@ mod fabric_os {
         
         let mut buffer: Vec<u32> = vec![C_DARK_GRAY; (SCREEN_WIDTH * SCREEN_HEIGHT) as usize];
         let mut display = Display::new(surface_id, &mut buffer);
+        let mut browser = Browser::new();
         
-        // Target URL (hardcoded for now)
-        const TARGET_HOST: &str = "example.com";
-        const TARGET_PATH: &str = "/";
-        const TARGET_URL: &str = "http://example.com/";
+        // Initial load
+        load_page(&mut browser, &mut display);
         
-        // Show initial loading screen
-        display.clear(C_DARK_GRAY);
-        display.draw_chrome(TARGET_URL, "Loading...");
-        display.present();
-        
-        // Step 1: DNS Resolve
-        display.set_status("Resolving DNS...");
-        display.present();
-        
-        let ip = match FabricDns::resolve(TARGET_HOST) {
-            Ok(ip) => {
-                let ip_bytes = FabricDns::ip_to_bytes(ip);
-                display.set_status(&format!("DNS: {}.{}.{}.{}", 
-                    ip_bytes[0], ip_bytes[1], ip_bytes[2], ip_bytes[3]));
-                display.present();
-                sleep_ms(300);
-                ip
-            }
-            Err(e) => {
-                show_error_page(&mut display, &format!("DNS Error: {:?}", e),
-                    "Could not resolve hostname. Check network connection.");
-            }
-        };
-        
-        // Step 2: HTTP GET
-        display.set_status("Fetching content...");
-        display.present();
-        
-        let response_bytes = match HttpClient::get_bytes(ip, TARGET_HOST, TARGET_PATH, 80) {
-            Ok(bytes) => {
-                display.set_status(&format!("Downloaded {} bytes", bytes.len()));
-                display.present();
-                sleep_ms(200);
-                bytes
-            }
-            Err(HttpError::Timeout) => {
-                show_error_page(&mut display, "Connection Timeout",
-                    "The server did not respond in time.");
-            }
-            Err(HttpError::ConnectionClosed) => {
-                show_error_page(&mut display, "Connection Closed",
-                    "The server closed the connection unexpectedly.");
-            }
-            Err(e) => {
-                show_error_page(&mut display, &format!("HTTP Error: {:?}", e),
-                    "Failed to fetch the requested page.");
-            }
-        };
-        
-        // Step 3: Parse HTTP response
-        display.set_status("Parsing response...");
-        display.present();
-        
-        let (status_code, body) = match parse_http_response(&response_bytes) {
-            Some((code, body)) => (code, body),
-            None => {
-                // Fallback: treat entire response as body
-                (200, String::from_utf8_lossy(&response_bytes).to_string())
-            }
-        };
-        
-        if status_code >= 400 {
-            show_error_page(&mut display, 
-                &format!("HTTP {}", status_code),
-                &format!("Server returned error code {}", status_code));
-        }
-        
-        // Step 4: Extract text content from HTML
-        display.set_status("Extracting content...");
-        display.present();
-        
-        let text_content = extract_body_text(&body);
-        if text_content.trim().is_empty() {
-            show_error_page(&mut display, "Empty Content",
-                "The page contains no readable text content.");
-        }
-        
-        // Step 5: Render content
-        display.set_status("Ready");
-        display.render_content_page(TARGET_URL, &text_content);
-        display.present();
-        
-        // Done - halt (no scroll for now)
+        // Main event loop
         loop {
-            unsafe { core::arch::asm!("hlt"); }
+            // Poll for keyboard input (non-blocking)
+            match FabricKeyboard::read() {
+                Key::None => {
+                    // No key pressed, small delay to prevent busy-waiting
+                    sleep_ms(5);
+                }
+                key => {
+                    handle_key(key, &mut browser, &mut display);
+                }
+            }
+            
+            // Re-render if in viewing mode (for smooth scroll or animations)
+            if browser.mode == BrowserMode::Viewing {
+                display.render_browser(&browser);
+                display.present();
+            }
         }
     }
     
-    /// Parse HTTP response, return (status_code, body_text)
+    /// Handle keyboard input based on current mode
+    fn handle_key(key: Key, browser: &mut Browser, display: &mut Display) {
+        match browser.mode {
+            BrowserMode::Viewing => handle_viewing_key(key, browser, display),
+            BrowserMode::UrlEditing => handle_url_editing_key(key, browser, display),
+            BrowserMode::Loading => {
+                // Ignore keys during loading, or allow cancel
+                if key == Key::Escape {
+                    browser.mode = BrowserMode::Viewing;
+                }
+            }
+            BrowserMode::Error => {
+                // Any key returns to viewing
+                browser.mode = BrowserMode::Viewing;
+                display.render_browser(browser);
+                display.present();
+            }
+        }
+    }
+    
+    /// Handle keys in viewing mode
+    fn handle_viewing_key(key: Key, browser: &mut Browser, display: &mut Display) {
+        match key {
+            // Scrolling
+            Key::Down => browser.scroll_down(1),
+            Key::Up => browser.scroll_up(1),
+            Key::PageDown => browser.page_down(),
+            Key::PageUp => browser.page_up(),
+            Key::Home => browser.scroll_offset = 0,
+            Key::End => browser.scroll_offset = browser.content_lines.len().saturating_sub(MAX_LINES),
+            
+            // URL bar focus
+            Key::Tab | Key::Ascii(b'l') | Key::Ascii(b'L') => {
+                browser.mode = BrowserMode::UrlEditing;
+                browser.url_buffer = browser.url.clone();
+                browser.cursor_pos = browser.url_buffer.len();
+                browser.status_message = String::from("Edit URL, press Enter to navigate");
+            }
+            
+            // Navigation
+            Key::Ascii(b'r') | Key::Ascii(b'R') => {
+                // Reload
+                load_page(browser, display);
+            }
+            Key::Ascii(b'b') | Key::Ascii(b'B') => {
+                // Back
+                if let Some(url) = browser.go_back() {
+                    browser.navigate(&url);
+                    load_page(browser, display);
+                }
+            }
+            Key::Ascii(b'f') | Key::Ascii(b'F') => {
+                // Forward
+                if let Some(url) = browser.go_forward() {
+                    browser.navigate(&url);
+                    load_page(browser, display);
+                }
+            }
+            
+            _ => {}
+        }
+        
+        display.render_browser(browser);
+        display.present();
+    }
+    
+    /// Handle keys in URL editing mode
+    fn handle_url_editing_key(key: Key, browser: &mut Browser, display: &mut Display) {
+        match key {
+            Key::Enter => {
+                // Navigate to URL
+                let url = browser.url_buffer.clone();
+                browser.navigate(&url);
+                load_page(browser, display);
+            }
+            Key::Escape => {
+                // Cancel editing
+                browser.mode = BrowserMode::Viewing;
+                browser.url_buffer = browser.url.clone();
+                browser.status_message = String::from("Cancelled");
+                display.render_browser(browser);
+                display.present();
+            }
+            Key::Backspace => {
+                if browser.cursor_pos > 0 {
+                    browser.cursor_pos -= 1;
+                    browser.url_buffer.remove(browser.cursor_pos);
+                }
+            }
+            Key::Delete => {
+                if browser.cursor_pos < browser.url_buffer.len() {
+                    browser.url_buffer.remove(browser.cursor_pos);
+                }
+            }
+            Key::Left => {
+                if browser.cursor_pos > 0 {
+                    browser.cursor_pos -= 1;
+                }
+            }
+            Key::Right => {
+                if browser.cursor_pos < browser.url_buffer.len() {
+                    browser.cursor_pos += 1;
+                }
+            }
+            Key::Home => browser.cursor_pos = 0,
+            Key::End => browser.cursor_pos = browser.url_buffer.len(),
+            Key::Ascii(c) => {
+                if browser.url_buffer.len() < 256 {
+                    browser.url_buffer.insert(browser.cursor_pos, c as char);
+                    browser.cursor_pos += 1;
+                }
+            }
+            _ => {}
+        }
+        
+        display.render_browser(browser);
+        display.present();
+    }
+    
+    /// Load page content
+    fn load_page(browser: &mut Browser, display: &mut Display) {
+        browser.mode = BrowserMode::Loading;
+        display.render_browser(browser);
+        display.present();
+        
+        // Parse URL
+        let (is_https, host, path) = match parse_url(&browser.url) {
+            Some(parts) => parts,
+            None => {
+                show_error(browser, display, "Invalid URL", "Could not parse URL format");
+                return;
+            }
+        };
+        
+        // Fetch based on protocol
+        let response = if is_https {
+            // Try TLS first
+            match FabricTls::https_get(&host, &path) {
+                Ok(data) => data,
+                Err(TlsError::CertificateExpired) => {
+                    show_error(browser, display, "TLS Error", "Certificate has expired");
+                    return;
+                }
+                Err(TlsError::CertificateInvalid) => {
+                    show_error(browser, display, "TLS Error", "Certificate is invalid or untrusted");
+                    return;
+                }
+                Err(TlsError::HostnameMismatch) => {
+                    show_error(browser, display, "TLS Error", "Certificate hostname mismatch");
+                    return;
+                }
+                Err(TlsError::HandshakeFailed) => {
+                    show_error(browser, display, "TLS Error", "Handshake failed - server may not support TLS");
+                    return;
+                }
+                Err(_) => {
+                    show_error(browser, display, "TLS Error", "Connection failed");
+                    return;
+                }
+            }
+        } else {
+            // Plain HTTP
+            match HttpClient::get(&host, &path) {
+                Ok(data) => data,
+                Err(e) => {
+                    show_error(browser, display, "HTTP Error", &format!("{:?}", e));
+                    return;
+                }
+            }
+        };
+        
+        // Parse HTTP response
+        let (status, body) = match parse_http_response(&response) {
+            Some((code, body)) => {
+                if code >= 400 {
+                    show_error(browser, display, 
+                        &format!("HTTP {}", code), 
+                        &format!("Server returned error code {}", code));
+                    return;
+                }
+                (code, body)
+            }
+            None => {
+                // Treat entire response as body
+                (200, String::from_utf8_lossy(&response).to_string())
+            }
+        };
+        
+        // Extract text content
+        let text_content = extract_body_text(&body);
+        
+        // Update browser
+        browser.set_content(&text_content);
+        browser.add_to_history(&browser.url.clone());
+        browser.mode = BrowserMode::Viewing;
+        browser.status_message = format!("Loaded {} ({} bytes)", browser.url, response.len());
+        
+        // Try to extract title
+        if let Some(title) = extract_title(&body) {
+            browser.page_title = title;
+        }
+        
+        display.render_browser(browser);
+        display.present();
+    }
+    
+    /// Show error page
+    fn show_error(browser: &mut Browser, display: &mut Display, title: &str, detail: &str) {
+        browser.mode = BrowserMode::Error;
+        browser.page_title = title.to_string();
+        browser.set_content(&format!("{}\n\n{}", title, detail));
+        browser.status_message = format!("Error: {}", title);
+        display.render_browser(browser);
+        display.present();
+    }
+    
+    /// Parse URL into (is_https, host, path)
+    fn parse_url(url: &str) -> Option<(bool, String, String)> {
+        let url_lower = url.to_lowercase();
+        
+        if url_lower.starts_with("https://") {
+            let rest = &url[8..];
+            let (host, path) = split_host_path(rest);
+            Some((true, host, path))
+        } else if url_lower.starts_with("http://") {
+            let rest = &url[7..];
+            let (host, path) = split_host_path(rest);
+            Some((false, host, path))
+        } else {
+            // Assume http if no scheme
+            let (host, path) = split_host_path(url);
+            Some((false, host, path))
+        }
+    }
+    
+    fn split_host_path(url: &str) -> (String, String) {
+        if let Some(slash_pos) = url.find('/') {
+            (url[..slash_pos].to_string(), url[slash_pos..].to_string())
+        } else {
+            (url.to_string(), String::from("/"))
+        }
+    }
+    
+    /// Display structure
+    pub struct Display<'a> {
+        surface_id: u64,
+        buffer: &'a mut [u32],
+    }
+    
+    impl<'a> Display<'a> {
+        pub fn new(surface_id: u64, buffer: &'a mut [u32]) -> Self {
+            Self { surface_id, buffer }
+        }
+        
+        pub fn clear(&mut self, color: u32) {
+            for pixel in self.buffer.iter_mut() {
+                *pixel = color;
+            }
+        }
+        
+        pub fn present(&self) {
+            let _ = FabricDisplay::blit_surface(self.surface_id, self.buffer.as_ptr(), self.buffer.len() * 4);
+            let _ = FabricDisplay::present_surface(self.surface_id);
+        }
+        
+        /// Render complete browser UI
+        pub fn render_browser(&mut self, browser: &Browser) {
+            self.clear(C_DARK_GRAY);
+            
+            // Draw URL bar
+            self.draw_url_bar(browser);
+            
+            // Draw content area
+            match browser.mode {
+                BrowserMode::Viewing | BrowserMode::Loading => {
+                    self.draw_content(browser);
+                }
+                BrowserMode::Error => {
+                    self.draw_error_content(browser);
+                }
+                BrowserMode::UrlEditing => {
+                    self.draw_content(browser);
+                }
+            }
+            
+            // Draw status bar
+            self.draw_status_bar(browser);
+            
+            // Draw scrollbar if needed
+            if browser.content_lines.len() > MAX_LINES {
+                self.draw_scrollbar(browser);
+            }
+        }
+        
+        fn draw_url_bar(&mut self, browser: &mut Browser) {
+            // URL bar background
+            let bg_color = match browser.mode {
+                BrowserMode::UrlEditing => C_WARM_100,
+                _ => C_MID_GRAY,
+            };
+            draw_rect(self.buffer, 0, 0, SCREEN_WIDTH, URL_BAR_HEIGHT, bg_color);
+            
+            // URL text
+            let url_text = match browser.mode {
+                BrowserMode::UrlEditing => &browser.url_buffer,
+                _ => &browser.url,
+            };
+            
+            let text_color = match browser.mode {
+                BrowserMode::UrlEditing => C_BLACK,
+                _ => C_WHITE,
+            };
+            
+            // Draw URL with scheme highlighting
+            draw_text(self.buffer, 10, 18, url_text, text_color);
+            
+            // Draw cursor in edit mode
+            if browser.mode == BrowserMode::UrlEditing {
+                let cursor_x = 10 + (browser.cursor_pos as u32 * CHAR_WIDTH);
+                draw_rect(self.buffer, cursor_x, 16, 2, 18, C_INFO);
+            }
+            
+            // Draw navigation buttons
+            draw_text(self.buffer, SCREEN_WIDTH - 150, 18, "[B]ack", 
+                if browser.history_pos > 0 { C_OFF_WHITE } else { C_LIGHT_GRAY });
+            draw_text(self.buffer, SCREEN_WIDTH - 80, 18, "[R]eload", C_OFF_WHITE);
+            
+            // Separator line
+            draw_rect(self.buffer, 0, URL_BAR_HEIGHT, SCREEN_WIDTH, 2, C_WARM_600);
+        }
+        
+        fn draw_content(&mut self, browser: &Browser) {
+            let visible_lines = browser.content_lines.iter()
+                .skip(browser.scroll_offset)
+                .take(MAX_LINES);
+            
+            let mut y = MARGIN_Y;
+            for line in visible_lines {
+                draw_text(self.buffer, MARGIN_X, y, line, C_OFF_WHITE);
+                y += LINE_HEIGHT;
+            }
+            
+            // Loading indicator
+            if browser.mode == BrowserMode::Loading {
+                let msg = "Loading...";
+                let x = (SCREEN_WIDTH - (msg.len() as u32 * CHAR_WIDTH)) / 2;
+                let y = SCREEN_HEIGHT / 2;
+                draw_rect(self.buffer, x - 10, y - 10, (msg.len() as u32 * CHAR_WIDTH) + 20, 30, C_MID_GRAY);
+                draw_text(self.buffer, x, y, msg, C_WARM_500);
+            }
+        }
+        
+        fn draw_error_content(&mut self, browser: &Browser) {
+            // Error icon
+            let cx = 100;
+            let cy = 150;
+            for i in 0..40 {
+                draw_pixel(self.buffer, cx + i, cy + i, C_ERROR);
+                draw_pixel(self.buffer, cx + 40 - i, cy + i, C_ERROR);
+            }
+            
+            // Error title
+            draw_text(self.buffer, 160, 140, &browser.page_title, C_WHITE);
+            
+            // Separator
+            draw_rect(self.buffer, 50, 190, SCREEN_WIDTH - 100, 2, C_LIGHT_GRAY);
+            
+            // Content
+            self.draw_content(browser);
+        }
+        
+        fn draw_status_bar(&mut self, browser: &Browser) {
+            let status_y = SCREEN_HEIGHT - STATUS_HEIGHT;
+            
+            // Status bar background
+            draw_rect(self.buffer, 0, status_y, SCREEN_WIDTH, STATUS_HEIGHT, C_MID_GRAY);
+            
+            // Status text
+            draw_text(self.buffer, 10, status_y + 6, &browser.status_message, C_OFF_WHITE);
+            
+            // Scroll position indicator
+            if browser.content_lines.len() > MAX_LINES {
+                let scroll_text = format!("{} / {} lines", 
+                    browser.scroll_offset + 1, 
+                    browser.content_lines.len());
+                let text_width = scroll_text.len() as u32 * CHAR_WIDTH;
+                draw_text(self.buffer, SCREEN_WIDTH - text_width - 10, status_y + 6, 
+                    &scroll_text, C_OFF_WHITE);
+            }
+        }
+        
+        fn draw_scrollbar(&mut self, browser: &Browser) {
+            let scrollbar_x = SCREEN_WIDTH - 12;
+            let content_height = SCREEN_HEIGHT - MARGIN_Y - STATUS_HEIGHT - 10;
+            
+            // Track
+            draw_rect(self.buffer, scrollbar_x, MARGIN_Y, 8, content_height, C_MID_GRAY);
+            
+            // Thumb
+            let thumb_height = (MAX_LINES as u32 * content_height) / browser.content_lines.len() as u32;
+            let max_scroll = browser.content_lines.len() - MAX_LINES;
+            let thumb_y = if max_scroll > 0 {
+                MARGIN_Y + (browser.scroll_offset as u32 * (content_height - thumb_height)) / max_scroll as u32
+            } else {
+                MARGIN_Y
+            };
+            
+            draw_rect(self.buffer, scrollbar_x, thumb_y, 8, thumb_height.max(20), C_WARM_500);
+        }
+    }
+    
+    // HTML and text processing
     fn parse_http_response(data: &[u8]) -> Option<(u16, String)> {
-        // Find header/body separator
         let header_end = data.windows(4)
             .position(|w| w == b"\r\n\r\n")
             .or_else(|| data.windows(2).position(|w| w == b"\n\n"))?;
@@ -222,26 +654,21 @@ mod fabric_os {
             header_end + 2
         };
         
-        // Parse status line
         let header_text = core::str::from_utf8(&data[..header_end]).ok()?;
         let first_line = header_text.lines().next()?;
         let parts: Vec<&str> = first_line.split_whitespace().collect();
+        
         if parts.len() < 2 {
             return None;
         }
         
         let status_code = parts[1].parse::<u16>().ok()?;
+        let body = String::from_utf8_lossy(&data[body_start..]).to_string();
         
-        // Extract body
-        let body_bytes = &data[body_start..];
-        let body_text = String::from_utf8_lossy(body_bytes).to_string();
-        
-        Some((status_code, body_text))
+        Some((status_code, body))
     }
     
-    /// Extract text content from HTML
     fn extract_body_text(html: &str) -> String {
-        // Find body tag
         let body_start = html.to_lowercase().find("<body");
         let body_end = html.to_lowercase().find("</body>");
         
@@ -256,32 +683,32 @@ mod fabric_os {
             _ => html,
         };
         
-        strip_html_tags(content)
+        strip_tags(content)
     }
     
-    /// Strip HTML tags, preserve text
-    fn strip_html_tags(html: &str) -> String {
+    fn extract_title(html: &str) -> Option<String> {
+        let title_start = html.to_lowercase().find("<title>")?;
+        let title_end = html[title_start..].to_lowercase().find("</title>")?;
+        Some(html[title_start + 7..title_start + title_end].to_string())
+    }
+    
+    fn strip_tags(html: &str) -> String {
         let mut result = String::with_capacity(html.len() / 2);
         let mut in_tag = false;
         let mut in_script = false;
-        let mut chars = html.chars().peekable();
         
+        let mut chars = html.chars().peekable();
         while let Some(ch) = chars.next() {
             if ch == '<' {
-                // Check for script/style
                 let ahead: String = chars.clone().take(7).collect();
                 let lower = ahead.to_lowercase();
-                if lower.starts_with("script") {
+                if lower.starts_with("script") || lower.starts_with("style") {
                     in_script = true;
-                } else if lower.starts_with("style") {
-                    in_script = true; // Reuse flag for style too
                 } else if lower.starts_with("/script") || lower.starts_with("/style") {
                     in_script = false;
-                    // Skip to >
                     while chars.next() != Some('>') {}
                     continue;
                 }
-                
                 in_tag = true;
                 continue;
             }
@@ -296,7 +723,6 @@ mod fabric_os {
             }
             
             if !in_tag {
-                // Handle entities
                 if ch == '&' {
                     if chars.peek() == Some(&'l') {
                         chars.next();
@@ -316,13 +742,6 @@ mod fabric_os {
                             result.push('&');
                             continue;
                         }
-                    } else if chars.peek() == Some(&'n') {
-                        chars.next();
-                        if chars.next() == Some('b') && chars.next() == Some('s') && 
-                           chars.next() == Some('p') && chars.next() == Some(';') {
-                            result.push(' ');
-                            continue;
-                        }
                     }
                     result.push('&');
                 } else if ch.is_whitespace() {
@@ -338,238 +757,69 @@ mod fabric_os {
         result.trim().to_string()
     }
     
-    /// Word wrap text to fit content width
-    fn wrap_text(text: &str, max_chars: usize) -> Vec<String> {
+    fn wrap_text(text: &str, width: usize) -> Vec<String> {
         let mut lines = Vec::new();
-        let mut current_line = String::new();
+        let mut current = String::new();
         
         for word in text.split_whitespace() {
-            if current_line.is_empty() {
-                // Word might be longer than max_chars
-                if word.len() > max_chars {
-                    // Split long word
-                    for chunk in word.as_bytes().chunks(max_chars) {
+            if current.is_empty() {
+                if word.len() > width {
+                    for chunk in word.as_bytes().chunks(width) {
                         lines.push(String::from_utf8_lossy(chunk).to_string());
                     }
                 } else {
-                    current_line.push_str(word);
+                    current.push_str(word);
                 }
-            } else if current_line.len() + 1 + word.len() <= max_chars {
-                current_line.push(' ');
-                current_line.push_str(word);
+            } else if current.len() + 1 + word.len() <= width {
+                current.push(' ');
+                current.push_str(word);
             } else {
-                lines.push(current_line);
-                current_line = word.to_string();
+                lines.push(current);
+                current = word.to_string();
             }
         }
         
-        if !current_line.is_empty() {
-            lines.push(current_line);
+        if !current.is_empty() {
+            lines.push(current);
         }
         
         lines
     }
     
-    /// Display structure
-    pub struct Display<'a> {
-        surface_id: u64,
-        buffer: &'a mut [u32],
-        status_text: String,
-    }
-    
-    impl<'a> Display<'a> {
-        pub fn new(surface_id: u64, buffer: &'a mut [u32]) -> Self {
-            Self {
-                surface_id,
-                buffer,
-                status_text: String::new(),
-            }
-        }
-        
-        pub fn clear(&mut self, color: u32) {
-            for pixel in self.buffer.iter_mut() {
-                *pixel = color;
-            }
-        }
-        
-        pub fn present(&self) {
-            let _ = FabricDisplay::blit_surface(self.surface_id, self.buffer.as_ptr(), self.buffer.len() * 4);
-            let _ = FabricDisplay::present_surface(self.surface_id);
-        }
-        
-        pub fn set_status(&mut self, text: &str) {
-            self.status_text = text.to_string();
-        }
-        
-        /// Draw browser chrome (URL bar, status)
-        pub fn draw_chrome(&mut self, url: &str, status: &str) {
-            // URL bar background
-            draw_rect(self.buffer, 0, 0, SCREEN_WIDTH, 40, C_MID_GRAY);
-            
-            // URL text
-            draw_text(self.buffer, 10, 15, url, C_WHITE);
-            
-            // Status line background
-            draw_rect(self.buffer, 0, SCREEN_HEIGHT - 24, SCREEN_WIDTH, 24, C_MID_GRAY);
-            
-            // Status text
-            let status_to_show = if !self.status_text.is_empty() {
-                &self.status_text
-            } else {
-                status
-            };
-            draw_text(self.buffer, 10, SCREEN_HEIGHT - 18, status_to_show, C_OFF_WHITE);
-            
-            // Separator line
-            draw_rect(self.buffer, 0, 40, SCREEN_WIDTH, 2, C_WARM_600);
-        }
-        
-        /// Render content page with text
-        pub fn render_content_page(&mut self, url: &str, content: &str) {
-            self.clear(C_DARK_GRAY);
-            self.draw_chrome(url, "Ready");
-            
-            // Calculate content area
-            let max_chars_per_line = (CONTENT_WIDTH / CHAR_WIDTH) as usize;
-            let lines = wrap_text(content, max_chars_per_line);
-            
-            // Render visible lines
-            let mut y = MARGIN_Y;
-            for line in lines.iter().take(MAX_LINES) {
-                draw_text(self.buffer, MARGIN_X, y, line, C_OFF_WHITE);
-                y += LINE_HEIGHT;
-            }
-            
-            // Show truncation notice if needed
-            if lines.len() > MAX_LINES {
-                let msg = format!("... {} more lines", lines.len() - MAX_LINES);
-                draw_text(self.buffer, MARGIN_X, SCREEN_HEIGHT - 50, &msg, C_LIGHT_GRAY);
-            }
-        }
-    }
-    
-    /// Show error page with design system styling
-    fn show_error_page(display: &mut Display, error_title: &str, error_detail: &str) -> ! {
-        display.clear(C_DARK_GRAY);
-        
-        // Error header bar
-        draw_rect(display.buffer, 0, 0, SCREEN_WIDTH, 40, C_ERROR);
-        draw_text(display.buffer, 10, 15, "Error", C_WHITE);
-        
-        // Error icon (simple X shape)
-        let cx = 100;
-        let cy = 120;
-        for i in 0..40 {
-            draw_pixel(display.buffer, cx + i, cy + i, C_ERROR);
-            draw_pixel(display.buffer, cx + 40 - i, cy + i, C_ERROR);
-        }
-        
-        // Error title
-        draw_text(display.buffer, 160, 110, error_title, C_WHITE);
-        
-        // Separator
-        draw_rect(display.buffer, 50, 160, SCREEN_WIDTH - 100, 2, C_LIGHT_GRAY);
-        
-        // Error detail
-        let detail_lines = wrap_text(error_detail, 100);
-        let mut y = 190;
-        for line in detail_lines.iter().take(10) {
-            draw_text(display.buffer, 50, y, line, C_OFF_WHITE);
-            y += 20;
-        }
-        
-        // Help text
-        draw_text(display.buffer, 50, SCREEN_HEIGHT - 60, 
-            "Press any key to retry (not implemented)", C_LIGHT_GRAY);
-        
-        display.present();
-        
-        // Halt
-        loop {
-            unsafe { core::arch::asm!("hlt"); }
-        }
-    }
-    
-    fn fatal_error(_msg: &str) -> ! {
-        loop {
-            unsafe { core::arch::asm!("hlt"); }
-        }
-    }
-    
-    fn sleep_ms(ms: u32) {
-        for _ in 0..ms * 10000 {
-            unsafe { core::arch::asm!("nop"); }
-        }
-    }
-    
-    fn draw_pixel(buffer: &mut [u32], x: u32, y: u32, color: u32) {
-        if x < SCREEN_WIDTH && y < SCREEN_HEIGHT {
-            buffer[(y * SCREEN_WIDTH + x) as usize] = color;
-        }
-    }
-    
-    fn draw_rect(buffer: &mut [u32], x: u32, y: u32, w: u32, h: u32, color: u32) {
-        for dy in 0..h {
-            for dx in 0..w {
-                let px = x + dx;
-                let py = y + dy;
-                if px < SCREEN_WIDTH && py < SCREEN_HEIGHT {
-                    buffer[(py * SCREEN_WIDTH + px) as usize] = color;
-                }
-            }
-        }
-    }
-    
-    // Font data and text rendering
+    // Font rendering
     static FONT_5X7: &[u8] = &[
-        0x00,0x00,0x00,0x00,0x00, /* Space */ 0x00,0x00,0x5F,0x00,0x00, /* ! */
-        0x00,0x07,0x00,0x07,0x00, /* " */ 0x14,0x7F,0x14,0x7F,0x14, /* # */
-        0x24,0x2A,0x7F,0x2A,0x12, /* $ */ 0x23,0x13,0x08,0x64,0x62, /* % */
-        0x36,0x49,0x55,0x22,0x50, /* & */ 0x00,0x05,0x03,0x00,0x00, /* ' */
-        0x00,0x1C,0x22,0x41,0x00, /* ( */ 0x00,0x41,0x22,0x1C,0x00, /* ) */
-        0x08,0x2A,0x1C,0x2A,0x08, /* * */ 0x08,0x08,0x3E,0x08,0x08, /* + */
-        0x00,0x50,0x30,0x00,0x00, /* , */ 0x08,0x08,0x08,0x08,0x08, /* - */
-        0x00,0x60,0x60,0x00,0x00, /* . */ 0x20,0x10,0x08,0x04,0x02, /* / */
-        0x3E,0x51,0x49,0x45,0x3E, /* 0 */ 0x00,0x42,0x7F,0x40,0x00, /* 1 */
-        0x42,0x61,0x51,0x49,0x46, /* 2 */ 0x21,0x41,0x45,0x4B,0x31, /* 3 */
-        0x18,0x14,0x12,0x7F,0x10, /* 4 */ 0x27,0x45,0x45,0x45,0x39, /* 5 */
-        0x3C,0x4A,0x49,0x49,0x30, /* 6 */ 0x01,0x71,0x09,0x05,0x03, /* 7 */
-        0x36,0x49,0x49,0x49,0x36, /* 8 */ 0x06,0x49,0x49,0x29,0x1E, /* 9 */
-        0x00,0x36,0x36,0x00,0x00, /* : */ 0x00,0x56,0x36,0x00,0x00, /* ; */
-        0x00,0x08,0x14,0x22,0x41, /* < */ 0x14,0x14,0x14,0x14,0x14, /* = */
-        0x41,0x22,0x14,0x08,0x00, /* > */ 0x02,0x01,0x51,0x09,0x06, /* ? */
-        0x32,0x49,0x79,0x41,0x3E, /* @ */ 0x7E,0x11,0x11,0x11,0x7E, /* A */
-        0x7F,0x49,0x49,0x49,0x36, /* B */ 0x3E,0x41,0x41,0x41,0x22, /* C */
-        0x7F,0x41,0x41,0x22,0x1C, /* D */ 0x7F,0x49,0x49,0x49,0x41, /* E */
-        0x7F,0x09,0x09,0x01,0x01, /* F */ 0x3E,0x41,0x41,0x51,0x32, /* G */
-        0x7F,0x08,0x08,0x08,0x7F, /* H */ 0x00,0x41,0x7F,0x41,0x00, /* I */
-        0x20,0x40,0x41,0x3F,0x01, /* J */ 0x7F,0x08,0x14,0x22,0x41, /* K */
-        0x7F,0x40,0x40,0x40,0x40, /* L */ 0x7F,0x02,0x04,0x02,0x7F, /* M */
-        0x7F,0x04,0x08,0x10,0x7F, /* N */ 0x3E,0x41,0x41,0x41,0x3E, /* O */
-        0x7F,0x09,0x09,0x09,0x06, /* P */ 0x3E,0x41,0x51,0x21,0x5E, /* Q */
-        0x7F,0x09,0x19,0x29,0x46, /* R */ 0x46,0x49,0x49,0x49,0x31, /* S */
-        0x01,0x01,0x7F,0x01,0x01, /* T */ 0x3F,0x40,0x40,0x40,0x3F, /* U */
-        0x1F,0x20,0x40,0x20,0x1F, /* V */ 0x7F,0x20,0x18,0x20,0x7F, /* W */
-        0x63,0x14,0x08,0x14,0x63, /* X */ 0x03,0x04,0x78,0x04,0x03, /* Y */
-        0x61,0x51,0x49,0x45,0x43, /* Z */ 0x00,0x00,0x7F,0x41,0x41, /* [ */
-        0x02,0x04,0x08,0x10,0x20, /* \ */ 0x41,0x41,0x7F,0x00,0x00, /* ] */
-        0x04,0x02,0x01,0x02,0x04, /* ^ */ 0x40,0x40,0x40,0x40,0x40, /* _ */
-        0x00,0x01,0x02,0x04,0x00, /* ` */ 0x20,0x54,0x54,0x54,0x78, /* a */
-        0x7F,0x48,0x44,0x44,0x38, /* b */ 0x38,0x44,0x44,0x44,0x20, /* c */
-        0x38,0x44,0x44,0x48,0x7F, /* d */ 0x38,0x54,0x54,0x54,0x18, /* e */
-        0x08,0x7E,0x09,0x01,0x02, /* f */ 0x08,0x14,0x54,0x54,0x3C, /* g */
-        0x7F,0x08,0x04,0x04,0x78, /* h */ 0x00,0x44,0x7D,0x40,0x00, /* i */
-        0x20,0x40,0x44,0x3D,0x00, /* j */ 0x00,0x7F,0x10,0x28,0x44, /* k */
-        0x00,0x41,0x7F,0x40,0x00, /* l */ 0x7C,0x04,0x18,0x04,0x78, /* m */
-        0x7C,0x08,0x04,0x04,0x78, /* n */ 0x38,0x44,0x44,0x44,0x38, /* o */
-        0x7C,0x14,0x14,0x14,0x08, /* p */ 0x08,0x14,0x14,0x18,0x7C, /* q */
-        0x7C,0x08,0x04,0x04,0x08, /* r */ 0x48,0x54,0x54,0x54,0x20, /* s */
-        0x04,0x3F,0x44,0x40,0x20, /* t */ 0x3C,0x40,0x40,0x20,0x7C, /* u */
-        0x1C,0x20,0x40,0x20,0x1C, /* v */ 0x3C,0x40,0x30,0x40,0x3C, /* w */
-        0x44,0x28,0x10,0x28,0x44, /* x */ 0x0C,0x50,0x50,0x50,0x3C, /* y */
-        0x44,0x64,0x54,0x4C,0x44, /* z */ 0x00,0x08,0x36,0x41,0x00, /* { */
-        0x00,0x00,0x7F,0x00,0x00, /* | */ 0x00,0x41,0x36,0x08,0x00, /* } */
-        0x08,0x08,0x2A,0x1C,0x08, /* ~ */
+        0x00,0x00,0x00,0x00,0x00, 0x00,0x00,0x5F,0x00,0x00, 0x00,0x07,0x00,0x07,0x00,
+        0x14,0x7F,0x14,0x7F,0x14, 0x24,0x2A,0x7F,0x2A,0x12, 0x23,0x13,0x08,0x64,0x62,
+        0x36,0x49,0x55,0x22,0x50, 0x00,0x05,0x03,0x00,0x00, 0x00,0x1C,0x22,0x41,0x00,
+        0x00,0x41,0x22,0x1C,0x00, 0x08,0x2A,0x1C,0x2A,0x08, 0x08,0x08,0x3E,0x08,0x08,
+        0x00,0x50,0x30,0x00,0x00, 0x08,0x08,0x08,0x08,0x08, 0x00,0x60,0x60,0x00,0x00,
+        0x20,0x10,0x08,0x04,0x02, 0x3E,0x51,0x49,0x45,0x3E, 0x00,0x42,0x7F,0x40,0x00,
+        0x42,0x61,0x51,0x49,0x46, 0x21,0x41,0x45,0x4B,0x31, 0x18,0x14,0x12,0x7F,0x10,
+        0x27,0x45,0x45,0x45,0x39, 0x3C,0x4A,0x49,0x49,0x30, 0x01,0x71,0x09,0x05,0x03,
+        0x36,0x49,0x49,0x49,0x36, 0x06,0x49,0x49,0x29,0x1E, 0x00,0x36,0x36,0x00,0x00,
+        0x00,0x56,0x36,0x00,0x00, 0x00,0x08,0x14,0x22,0x41, 0x14,0x14,0x14,0x14,0x14,
+        0x41,0x22,0x14,0x08,0x00, 0x02,0x01,0x51,0x09,0x06, 0x32,0x49,0x79,0x41,0x3E,
+        0x7E,0x11,0x11,0x11,0x7E, 0x7F,0x49,0x49,0x49,0x36, 0x3E,0x41,0x41,0x41,0x22,
+        0x7F,0x41,0x41,0x22,0x1C, 0x7F,0x49,0x49,0x49,0x41, 0x7F,0x09,0x09,0x01,0x01,
+        0x3E,0x41,0x41,0x51,0x32, 0x7F,0x08,0x08,0x08,0x7F, 0x00,0x41,0x7F,0x41,0x00,
+        0x20,0x40,0x41,0x3F,0x01, 0x7F,0x08,0x14,0x22,0x41, 0x7F,0x40,0x40,0x40,0x40,
+        0x7F,0x02,0x04,0x02,0x7F, 0x7F,0x04,0x08,0x10,0x7F, 0x3E,0x41,0x41,0x41,0x3E,
+        0x7F,0x09,0x09,0x09,0x06, 0x3E,0x41,0x51,0x21,0x5E, 0x7F,0x09,0x19,0x29,0x46,
+        0x46,0x49,0x49,0x49,0x31, 0x01,0x01,0x7F,0x01,0x01, 0x3F,0x40,0x40,0x40,0x3F,
+        0x1F,0x20,0x40,0x20,0x1F, 0x7F,0x20,0x18,0x20,0x7F, 0x63,0x14,0x08,0x14,0x63,
+        0x03,0x04,0x78,0x04,0x03, 0x61,0x51,0x49,0x45,0x43, 0x00,0x00,0x7F,0x41,0x41,
+        0x02,0x04,0x08,0x10,0x20, 0x41,0x41,0x7F,0x00,0x00, 0x04,0x02,0x01,0x02,0x04,
+        0x40,0x40,0x40,0x40,0x40, 0x00,0x01,0x02,0x04,0x00, 0x20,0x54,0x54,0x54,0x78,
+        0x7F,0x48,0x44,0x44,0x38, 0x38,0x44,0x44,0x44,0x20, 0x38,0x44,0x44,0x48,0x7F,
+        0x38,0x54,0x54,0x54,0x18, 0x08,0x7E,0x09,0x01,0x02, 0x08,0x14,0x54,0x54,0x3C,
+        0x7F,0x08,0x04,0x04,0x78, 0x00,0x44,0x7D,0x40,0x00, 0x20,0x40,0x44,0x3D,0x00,
+        0x00,0x7F,0x10,0x28,0x44, 0x00,0x41,0x7F,0x40,0x00, 0x7C,0x04,0x18,0x04,0x78,
+        0x7C,0x08,0x04,0x04,0x78, 0x38,0x44,0x44,0x44,0x38, 0x7C,0x14,0x14,0x14,0x08,
+        0x08,0x14,0x14,0x18,0x7C, 0x7C,0x08,0x04,0x04,0x08, 0x48,0x54,0x54,0x54,0x20,
+        0x04,0x3F,0x44,0x40,0x20, 0x3C,0x40,0x40,0x20,0x7C, 0x1C,0x20,0x40,0x20,0x1C,
+        0x3C,0x40,0x30,0x40,0x3C, 0x44,0x28,0x10,0x28,0x44, 0x0C,0x50,0x50,0x50,0x3C,
+        0x44,0x64,0x54,0x4C,0x44, 0x00,0x08,0x36,0x41,0x00, 0x00,0x00,0x7F,0x00,0x00,
+        0x00,0x41,0x36,0x08,0x00, 0x08,0x08,0x2A,0x1C,0x08,
     ];
     
     fn draw_char(buffer: &mut [u32], x: u32, y: u32, c: char, color: u32) {
@@ -602,6 +852,36 @@ mod fabric_os {
         for c in text.chars() {
             draw_char(buffer, cx, y, c, color);
             cx += 6;
+        }
+    }
+    
+    fn draw_pixel(buffer: &mut [u32], x: u32, y: u32, color: u32) {
+        if x < SCREEN_WIDTH && y < SCREEN_HEIGHT {
+            buffer[(y * SCREEN_WIDTH + x) as usize] = color;
+        }
+    }
+    
+    fn draw_rect(buffer: &mut [u32], x: u32, y: u32, w: u32, h: u32, color: u32) {
+        for dy in 0..h {
+            for dx in 0..w {
+                let px = x + dx;
+                let py = y + dy;
+                if px < SCREEN_WIDTH && py < SCREEN_HEIGHT {
+                    buffer[(py * SCREEN_WIDTH + px) as usize] = color;
+                }
+            }
+        }
+    }
+    
+    fn sleep_ms(ms: u32) {
+        for _ in 0..ms * 10000 {
+            unsafe { core::arch::asm!("nop"); }
+        }
+    }
+    
+    fn fatal_error(_msg: &str) -> ! {
+        loop {
+            unsafe { core::arch::asm!("hlt"); }
         }
     }
 }

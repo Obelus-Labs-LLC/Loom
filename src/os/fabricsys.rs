@@ -33,11 +33,20 @@ pub enum Syscall {
     DisplayBlit = 19,     // Blit buffer to surface
     DisplayPresent = 20,  // Present surface to screen
     
+    // Keyboard syscall (Phase 10B)
+    KbRead = 21,          // Read keyboard input
+    
     // DNS syscall (Phase 11)
     DnsResolve = 22,      // Resolve hostname to IPv4
     
     // Poll syscall (Phase 12)
     Poll = 24,            // Poll for I/O events
+    
+    // TLS syscalls (Phase 15)
+    TlsConnect = 25,      // TLS handshake
+    TlsSend = 26,         // Send encrypted data
+    TlsRecv = 27,         // Receive encrypted data
+    TlsClose = 28,        // Close TLS session
     
     // File syscalls (to be implemented in FabricOS)
     Read = 100,
@@ -71,6 +80,11 @@ pub const SYS_DISPLAY_BLIT: u64 = 19;
 pub const SYS_DISPLAY_PRESENT: u64 = 20;
 pub const SYS_DNS_RESOLVE: u64 = 22;
 pub const SYS_POLL: u64 = 24;
+pub const SYS_TLS_CONNECT: u64 = 25;
+pub const SYS_TLS_SEND: u64 = 26;
+pub const SYS_TLS_RECV: u64 = 27;
+pub const SYS_TLS_CLOSE: u64 = 28;
+pub const SYS_KB_READ: u64 = 21;
 
 /// Poll events
 pub const POLLIN: u16 = 0x01;
@@ -827,6 +841,331 @@ impl FabricPoll {
             Err(e) => Err(HttpError::PollFailed(e)),
         }
     }
+}
+
+/// TLS/SSL support for FabricOS (syscalls 25-28)
+pub struct FabricTls;
+
+/// TLS session handle (returned by kernel)
+pub type TlsSession = u32;
+
+/// TLS-specific errors
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum TlsError {
+    HandshakeFailed = 1,
+    CertificateInvalid = 2,
+    CertificateExpired = 3,
+    HostnameMismatch = 4,
+    ConnectionClosed = 5,
+    SendFailed = 6,
+    RecvFailed = 7,
+    KernelError = 8,
+}
+
+impl FabricTls {
+    /// Establish TLS connection over existing socket
+    /// 
+    /// # Arguments
+    /// * `sock` - Connected socket from FabricSocket
+    /// * `hostname` - Server hostname for certificate validation
+    /// 
+    /// # Returns
+    /// TLS session handle on success
+    pub fn connect(sock: RawFd, hostname: &str) -> Result<TlsSession, TlsError> {
+        // Validate hostname length
+        if hostname.len() > 256 {
+            return Err(TlsError::HostnameMismatch);
+        }
+        
+        let ret = unsafe {
+            syscall3(
+                Syscall::TlsConnect as usize,
+                sock.as_raw() as usize,
+                hostname.as_ptr() as usize,
+                hostname.len() as usize,
+            )
+        };
+        
+        if ret < 0 {
+            let err = -ret as i32;
+            match err {
+                1 => Err(TlsError::HandshakeFailed),
+                2 => Err(TlsError::CertificateInvalid),
+                3 => Err(TlsError::CertificateExpired),
+                4 => Err(TlsError::HostnameMismatch),
+                _ => Err(TlsError::KernelError),
+            }
+        } else {
+            Ok(ret as u32)
+        }
+    }
+    
+    /// Send encrypted data over TLS connection
+    pub fn send(session: TlsSession, data: &[u8]) -> Result<usize, TlsError> {
+        if data.len() > 65536 {
+            return Err(TlsError::KernelError);
+        }
+        
+        let ret = unsafe {
+            syscall3(
+                Syscall::TlsSend as usize,
+                session as usize,
+                data.as_ptr() as usize,
+                data.len() as usize,
+            )
+        };
+        
+        if ret < 0 {
+            let err = -ret as i32;
+            match err {
+                5 => Err(TlsError::ConnectionClosed),
+                _ => Err(TlsError::SendFailed),
+            }
+        } else {
+            Ok(ret as usize)
+        }
+    }
+    
+    /// Receive decrypted data from TLS connection
+    pub fn recv(session: TlsSession, buf: &mut [u8]) -> Result<usize, TlsError> {
+        let ret = unsafe {
+            syscall3(
+                Syscall::TlsRecv as usize,
+                session as usize,
+                buf.as_mut_ptr() as usize,
+                buf.len() as usize,
+            )
+        };
+        
+        if ret < 0 {
+            let err = -ret as i32;
+            match err {
+                5 => Err(TlsError::ConnectionClosed),
+                _ => Err(TlsError::RecvFailed),
+            }
+        } else {
+            Ok(ret as usize)
+        }
+    }
+    
+    /// Close TLS session
+    pub fn close(session: TlsSession) -> Result<(), TlsError> {
+        let ret = unsafe {
+            syscall1(
+                Syscall::TlsClose as usize,
+                session as usize,
+            )
+        };
+        
+        if ret < 0 {
+            Err(TlsError::KernelError)
+        } else {
+            Ok(())
+        }
+    }
+    
+    /// Perform HTTPS GET request
+    pub fn https_get(host: &str, path: &str) -> Result<Vec<u8>, TlsError> {
+        use alloc::vec::Vec;
+        
+        // 1. Resolve DNS
+        let ip = FabricDns::resolve(host)
+            .map_err(|_| TlsError::KernelError)?;
+        
+        // 2. Create socket
+        let sock = FabricSocket::socket(Domain::Inet, SockType::Stream, Protocol::Tcp)
+            .map_err(|_| TlsError::KernelError)?;
+        
+        // 3. Connect TCP
+        let ip_bytes = FabricDns::ip_to_bytes(ip);
+        let addr = SockAddrIn::new(ip_bytes, 443);
+        FabricSocket::connect(sock, &addr)
+            .map_err(|_| TlsError::KernelError)?;
+        
+        // 4. Start TLS handshake
+        let session = Self::connect(sock, host)?;
+        
+        // 5. Send HTTP request over TLS
+        let request = format!(
+            "GET {} HTTP/1.1\r\nHost: {}\r\nUser-Agent: Loom/0.1\r\nConnection: close\r\n\r\n",
+            path, host
+        );
+        
+        Self::send(session, request.as_bytes())?;
+        
+        // 6. Receive response with timeout handling
+        let mut response = Vec::new();
+        let mut buf = [0u8; 4096];
+        let mut empty_reads = 0;
+        
+        loop {
+            match Self::recv(session, &mut buf) {
+                Ok(0) => {
+                    empty_reads += 1;
+                    if empty_reads > 5 {
+                        break;
+                    }
+                    sleep_ms(10);
+                }
+                Ok(n) => {
+                    response.extend_from_slice(&buf[..n]);
+                    empty_reads = 0;
+                }
+                Err(TlsError::ConnectionClosed) => break,
+                Err(_) => break,
+            }
+            
+            // Safety limit
+            if response.len() > 1_048_576 {
+                break;
+            }
+        }
+        
+        // 7. Cleanup
+        let _ = Self::close(session);
+        let _ = FabricSocket::close(sock);
+        
+        Ok(response)
+    }
+}
+
+/// Keyboard input support (syscall 21)
+pub struct FabricKeyboard;
+
+/// Key event
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Key {
+    Ascii(u8),
+    Up,
+    Down,
+    Left,
+    Right,
+    PageUp,
+    PageDown,
+    Home,
+    End,
+    Enter,
+    Escape,
+    Tab,
+    Backspace,
+    Delete,
+    None,
+}
+
+/// Keyboard scancode mapping (simplified PC/AT set 1)
+impl FabricKeyboard {
+    /// Read key from keyboard buffer (non-blocking)
+    /// Returns Key::None if no key available
+    pub fn read() -> Key {
+        let ret = unsafe {
+            syscall1(Syscall::KbRead as usize, 0)
+        };
+        
+        if ret <= 0 {
+            return Key::None;
+        }
+        
+        let scancode = ret as u8;
+        Self::scancode_to_key(scancode)
+    }
+    
+    /// Poll for key with timeout (ms)
+    pub fn poll_key(timeout_ms: u32) -> Key {
+        let start = get_tick();
+        loop {
+            let key = Self::read();
+            if key != Key::None {
+                return key;
+            }
+            if get_tick() - start > timeout_ms as u64 {
+                return Key::None;
+            }
+            sleep_ms(1);
+        }
+    }
+    
+    /// Convert scancode to key
+    fn scancode_to_key(scancode: u8) -> Key {
+        // Simple scancode to ASCII mapping (no shift handling for now)
+        match scancode {
+            0x01 => Key::Escape,
+            0x0E => Key::Backspace,
+            0x0F => Key::Tab,
+            0x1C => Key::Enter,
+            0x48 => Key::Up,
+            0x50 => Key::Down,
+            0x4B => Key::Left,
+            0x4D => Key::Right,
+            0x49 => Key::PageUp,
+            0x51 => Key::PageDown,
+            0x47 => Key::Home,
+            0x4F => Key::End,
+            0x53 => Key::Delete,
+            // ASCII letters (assuming lowercase)
+            0x1E => Key::Ascii(b'a'),
+            0x30 => Key::Ascii(b'b'),
+            0x2E => Key::Ascii(b'c'),
+            0x20 => Key::Ascii(b'd'),
+            0x12 => Key::Ascii(b'e'),
+            0x21 => Key::Ascii(b'f'),
+            0x22 => Key::Ascii(b'g'),
+            0x23 => Key::Ascii(b'h'),
+            0x17 => Key::Ascii(b'i'),
+            0x24 => Key::Ascii(b'j'),
+            0x25 => Key::Ascii(b'k'),
+            0x26 => Key::Ascii(b'l'),
+            0x32 => Key::Ascii(b'm'),
+            0x31 => Key::Ascii(b'n'),
+            0x18 => Key::Ascii(b'o'),
+            0x19 => Key::Ascii(b'p'),
+            0x10 => Key::Ascii(b'q'),
+            0x13 => Key::Ascii(b'r'),
+            0x1F => Key::Ascii(b's'),
+            0x14 => Key::Ascii(b't'),
+            0x16 => Key::Ascii(b'u'),
+            0x2F => Key::Ascii(b'v'),
+            0x11 => Key::Ascii(b'w'),
+            0x2D => Key::Ascii(b'x'),
+            0x15 => Key::Ascii(b'y'),
+            0x2C => Key::Ascii(b'z'),
+            // Numbers
+            0x02 => Key::Ascii(b'1'),
+            0x03 => Key::Ascii(b'2'),
+            0x04 => Key::Ascii(b'3'),
+            0x05 => Key::Ascii(b'4'),
+            0x06 => Key::Ascii(b'5'),
+            0x07 => Key::Ascii(b'6'),
+            0x08 => Key::Ascii(b'7'),
+            0x09 => Key::Ascii(b'8'),
+            0x0A => Key::Ascii(b'9'),
+            0x0B => Key::Ascii(b'0'),
+            // Punctuation
+            0x39 => Key::Ascii(b' '),
+            0x33 => Key::Ascii(b','),
+            0x34 => Key::Ascii(b'.'),
+            0x35 => Key::Ascii(b'/'),
+            0x0C => Key::Ascii(b'-'),
+            0x0D => Key::Ascii(b'='),
+            0x1A => Key::Ascii(b'['),
+            0x1B => Key::Ascii(b']'),
+            0x2B => Key::Ascii(b'\\'),
+            0x27 => Key::Ascii(b';'),
+            0x28 => Key::Ascii(b'\''),
+            0x29 => Key::Ascii(b'`'),
+            _ => Key::None,
+        }
+    }
+}
+
+/// Simple timer/tick counter (approximate)
+static mut TICK_COUNT: u64 = 0;
+
+pub fn get_tick() -> u64 {
+    unsafe { TICK_COUNT }
+}
+
+pub fn increment_tick() {
+    unsafe { TICK_COUNT += 1; }
 }
 
 #[cfg(test)]
