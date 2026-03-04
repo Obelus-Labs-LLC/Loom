@@ -25,8 +25,8 @@ unsafe impl Sync for BumpAllocator {}
 impl BumpAllocator {
     pub const fn new() -> Self {
         Self {
-            heap: UnsafeCell::new(0x400000 as *mut u8), // Start at 4MB (above code at 2MB)
-            end: UnsafeCell::new(0xC00000 as *mut u8), // End at 12MB (8MB heap, mapped by kernel)
+            heap: UnsafeCell::new(0x800000 as *mut u8), // Start at 8MB (above any ELF code)
+            end: UnsafeCell::new(0x1000000 as *mut u8), // End at 16MB (8MB heap, mapped by kernel)
         }
     }
 }
