@@ -35,6 +35,9 @@ pub enum Syscall {
     // DNS syscall (Phase 11)
     DnsResolve = 22,      // Resolve hostname to IPv4
     
+    // Poll syscall (Phase 12)
+    Poll = 24,            // Poll for I/O events
+    
     // File syscalls (to be implemented in FabricOS)
     Read = 100,
     Write = 101,
@@ -66,6 +69,34 @@ pub const SYS_DISPLAY_ALLOC: u64 = 18;
 pub const SYS_DISPLAY_BLIT: u64 = 19;
 pub const SYS_DISPLAY_PRESENT: u64 = 20;
 pub const SYS_DNS_RESOLVE: u64 = 22;
+pub const SYS_POLL: u64 = 24;
+
+/// Poll events
+pub const POLLIN: u16 = 0x01;
+pub const POLLPRI: u16 = 0x02;
+pub const POLLOUT: u16 = 0x04;
+pub const POLLERR: u16 = 0x08;
+pub const POLLHUP: u16 = 0x10;
+pub const POLLNVAL: u16 = 0x20;
+
+/// PollFd structure for poll() syscall
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct PollFd {
+    pub fd: u32,
+    pub events: u16,
+    pub revents: u16,
+}
+
+impl PollFd {
+    pub fn new(fd: RawFd, events: u16) -> Self {
+        Self {
+            fd: fd.as_raw() as u32,
+            events,
+            revents: 0,
+        }
+    }
+}
 
 /// DNS resolution error
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -83,6 +114,9 @@ pub enum HttpError {
     RecvFailed(i32),
     DnsFailed(DnsError),
     SocketFailed(i32),
+    PollFailed(i32),
+    Timeout,
+    ConnectionClosed,
 }
 
 /// Yield to kernel (syscall 0 or dedicated yield)
@@ -624,7 +658,7 @@ impl FabricDns {
 pub struct HttpClient;
 
 impl HttpClient {
-    /// Perform HTTP GET request and return raw bytes
+    /// Perform HTTP GET request and return raw bytes using poll() for efficient I/O
     /// 
     /// # Arguments
     /// * `ip` - Packed IPv4 address (big-endian u32)
@@ -636,6 +670,8 @@ impl HttpClient {
     /// Raw response bytes (headers + body)
     pub fn get_bytes(ip: u32, host: &str, path: &str, port: u16) -> Result<alloc::vec::Vec<u8>, HttpError> {
         use alloc::vec::Vec;
+        const POLL_TIMEOUT_MS: i32 = 5000; // 5 second timeout per poll
+        const MAX_RESPONSE_SIZE: usize = 1_048_576; // 1MB max
         
         // 1. Create socket
         let sock = FabricSocket::socket(Domain::Inet, SockType::Stream, Protocol::Tcp)
@@ -658,38 +694,57 @@ impl HttpClient {
         FabricSocket::send(sock, request.as_bytes(), 0)
             .map_err(|e| HttpError::SendFailed(e))?;
         
-        // 5. Receive response with polling for WouldBlock
+        // 5. Receive response using poll() for efficiency
         let mut response = Vec::new();
         let mut buf = [0u8; 4096];
-        let mut empty_count = 0;
         
         loop {
-            match FabricSocket::recv(sock, &mut buf, 0) {
-                Ok(0) => {
-                    // Connection closed
-                    empty_count += 1;
-                    if empty_count > 10 {
-                        break;
+            // Poll for readability with timeout
+            match FabricPoll::poll_readable(sock, POLL_TIMEOUT_MS) {
+                Ok(true) => {
+                    // Data available - recv it
+                    match FabricSocket::recv(sock, &mut buf, 0) {
+                        Ok(0) => {
+                            // Connection closed gracefully
+                            break;
+                        }
+                        Ok(n) => {
+                            response.extend_from_slice(&buf[..n]);
+                        }
+                        Err(e) => {
+                            let _ = FabricSocket::close(sock);
+                            return Err(HttpError::RecvFailed(e));
+                        }
                     }
-                    yield_syscall();
                 }
-                Ok(n) => {
-                    response.extend_from_slice(&buf[..n]);
-                    empty_count = 0;
+                Ok(false) => {
+                    // POLLHUP - connection closed by server
+                    break;
+                }
+                Err(HttpError::Timeout) => {
+                    // No data within timeout - may be complete
+                    // Try one more non-blocking recv to confirm
+                    match FabricSocket::recv(sock, &mut buf, 0) {
+                        Ok(0) => break, // Confirmed closed
+                        Ok(n) => {
+                            response.extend_from_slice(&buf[..n]);
+                            continue; // More data, keep polling
+                        }
+                        Err(11) => break, // EAGAIN, assume done
+                        Err(e) => {
+                            let _ = FabricSocket::close(sock);
+                            return Err(HttpError::RecvFailed(e));
+                        }
+                    }
                 }
                 Err(e) => {
-                    if e == 11 || e == 11 { // EAGAIN / EWOULDBLOCK
-                        yield_syscall();
-                        continue;
-                    }
-                    // Close socket on error
                     let _ = FabricSocket::close(sock);
-                    return Err(HttpError::RecvFailed(e));
+                    return Err(e);
                 }
             }
             
-            // Safety limit: 1MB max response
-            if response.len() > 1_048_576 {
+            // Safety limit
+            if response.len() > MAX_RESPONSE_SIZE {
                 break;
             }
         }
@@ -705,6 +760,63 @@ impl HttpClient {
         let ip = FabricDns::resolve(host)
             .map_err(|e| HttpError::DnsFailed(e))?;
         Self::get_bytes(ip, host, path, 80)
+    }
+}
+
+/// Poll-based I/O multiplexing for FabricOS
+pub struct FabricPoll;
+
+impl FabricPoll {
+    /// Wait for events on file descriptors
+    /// 
+    /// # Arguments
+    /// * `fds` - Array of PollFd structures (modified in-place by kernel)
+    /// * `timeout_ms` - Timeout in milliseconds, -1 for infinite
+    /// 
+    /// # Returns
+    /// Number of ready file descriptors on success
+    pub fn poll(fds: &mut [PollFd], timeout_ms: i32) -> Result<usize, i32> {
+        let ret = unsafe {
+            syscall3(
+                Syscall::Poll as usize,
+                fds.as_mut_ptr() as usize,
+                fds.len() as usize,
+                timeout_ms as usize,
+            )
+        };
+        
+        if ret < 0 {
+            Err(-ret as i32)
+        } else {
+            Ok(ret as usize)
+        }
+    }
+    
+    /// Poll a single fd for readability with timeout
+    /// 
+    /// # Returns
+    /// - Ok(true): Data available (POLLIN)
+    /// - Ok(false): Connection closed (POLLHUP)
+    /// - Err(HttpError::Timeout): Timed out
+    /// - Err(HttpError::PollFailed): Poll error
+    pub fn poll_readable(fd: RawFd, timeout_ms: i32) -> Result<bool, HttpError> {
+        let mut pollfd = PollFd::new(fd, POLLIN);
+        
+        match Self::poll(core::slice::from_mut(&mut pollfd), timeout_ms) {
+            Ok(0) => Err(HttpError::Timeout),
+            Ok(_) => {
+                if pollfd.revents & POLLIN != 0 {
+                    Ok(true) // Data available
+                } else if pollfd.revents & POLLHUP != 0 {
+                    Ok(false) // Connection closed
+                } else if pollfd.revents & POLLERR != 0 {
+                    Err(HttpError::PollFailed(POLLERR as i32))
+                } else {
+                    Err(HttpError::PollFailed(pollfd.revents as i32))
+                }
+            }
+            Err(e) => Err(HttpError::PollFailed(e)),
+        }
     }
 }
 
