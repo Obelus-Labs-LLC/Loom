@@ -1,0 +1,34 @@
+[package]
+name = "loom"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+authors = ["Loom Team"]
+description = "A Rust-native browser with AI-assisted and Traditional modes"
+
+[workspace]
+members = [
+    "crates/loom-core",
+]
+resolver = "2"
+
+[features]
+default = ["std"]
+std = ["loom-core/std"]
+
+# Common dependencies (work for both std and no_std)
+[dependencies]
+glam = { version = "0.25", default-features = false, features = ["libm"] }
+
+# Workspace crates
+loom-core = { path = "crates/loom-core", default-features = false }
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+
+[profile.dev]
+opt-level = 0
+debug = true

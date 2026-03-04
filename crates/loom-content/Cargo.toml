@@ -1,0 +1,12 @@
+[package]
+name = "loom-content"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+loom-core = { path = "../loom-core" }
+reqwest = { version = "0.12", features = ["rustls-tls", "http2"], default-features = false }
+rustls = { version = "0.23", features = ["ring"] }
+tokio = { version = "1.40", features = ["full"] }
+html5ever = "0.27"
+anyhow = "1.0"

@@ -1,0 +1,11 @@
+[package]
+name = "loom-core"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+glam = { version = "0.25", default-features = false, features = ["libm"] }
+
+[features]
+default = ["std"]
+std = ["glam/std"]

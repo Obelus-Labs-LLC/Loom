@@ -1,0 +1,11 @@
+[package]
+name = "loom-chrome"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+loom-core = { path = "../loom-core" }
+loom-render = { path = "../loom-render" }
+wgpu = "0.20"
+glam = "0.25"
+anyhow = "1.0"

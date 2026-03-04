@@ -1,0 +1,12 @@
+[package]
+name = "loom-render"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+loom-core = { path = "../loom-core" }
+wgpu = { version = "0.20", features = ["wgsl"] }
+cosmic-text = "0.12"
+image = { version = "0.25", default-features = false, features = ["png"] }
+glam = "0.25"
+anyhow = "1.0"

@@ -1,0 +1,13 @@
+/* Loom Typography System */
+
+/* Tension Sans — UI chrome, navigation, labels */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap');
+
+/* Weave Serif — Long-form reading content */
+@import url('https://fonts.googleapis.com/css2?family=Lora:wght@400;500;600&display=swap');
+
+/* Fabric Mono — Data, code, technical precision */
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap');
+
+/* Hand — Intent input field, handwriting simulation */
+@import url('https://fonts.googleapis.com/css2?family=Caveat:wght@400;500;600&display=swap');
