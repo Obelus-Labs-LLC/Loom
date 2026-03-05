@@ -5,6 +5,8 @@ edition = "2021"
 rust-version = "1.75"
 authors = ["Loom Team"]
 description = "A Rust-native browser with AI-assisted and Traditional modes"
+license = "GPL-3.0"
+repository = "https://github.com/Obelus-Labs-LLC/Loom"
 
 [workspace]
 members = [

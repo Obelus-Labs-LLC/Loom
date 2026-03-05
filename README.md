@@ -1,6 +1,6 @@
 # Loom Browser
 
-[![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 [![Rust](https://img.shields.io/badge/rust-1.75%2B-orange.svg)](https://www.rust-lang.org)
 
 A Rust-native browser built for the [FabricOS](https://github.com/Obelus-Labs-LLC/FabricOS) microkernel. Loom features dual-mode operation (Traditional and AI-assisted), a unique chromatic temperature system, and direct kernel integration via syscalls.
@@ -234,7 +234,9 @@ Expected output:
 
 ## License
 
-Loom is licensed under the Apache License 2.0. See [LICENSE](LICENSE) for details.
+Loom is licensed under the GNU General Public License v3.0 (GPL-3.0). See [LICENSE](LICENSE) for details.
+
+This license aligns with the FabricOS kernel philosophy: free software that respects user sovereignty and ensures the browser remains open and auditable.
 
 ## Related Projects
 
