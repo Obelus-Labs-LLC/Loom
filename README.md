@@ -76,13 +76,6 @@ cp target/x86_64-unknown-none/release/loom ../FabricOS/initramfs/bin/
 
 Loom runs as a userspace process on FabricOS, using direct syscalls for all operations:
 
-### Display Syscalls (Phase 10)
-| Syscall | Number | Description |
-|---------|--------|-------------|
-| `sys_display_alloc` | 18 | Allocate a display surface |
-| `sys_display_blit` | 19 | Blit pixel buffer to surface |
-| `sys_display_present` | 20 | Present surface to screen |
-
 ### Socket Syscalls (Phase 9)
 | Syscall | Number | Description |
 |---------|--------|-------------|
@@ -94,6 +87,46 @@ Loom runs as a userspace process on FabricOS, using direct syscalls for all oper
 | `sys_send` | 15 | Send data |
 | `sys_recv` | 16 | Receive data |
 | `sys_shutdown` | 17 | Shutdown socket |
+
+### Display Syscalls (Phase 10)
+| Syscall | Number | Description |
+|---------|--------|-------------|
+| `sys_display_alloc` | 18 | Allocate a display surface |
+| `sys_display_blit` | 19 | Blit pixel buffer to surface |
+| `sys_display_present` | 20 | Present surface to screen |
+
+### Input Syscalls (Phase 11)
+| Syscall | Number | Description |
+|---------|--------|-------------|
+| `sys_kb_read` | 21 | Read keyboard input |
+
+### DNS Syscalls (Phase 12)
+| Syscall | Number | Description |
+|---------|--------|-------------|
+| `sys_dns_resolve` | 22 | Resolve hostname to IPv4 |
+
+### Poll Syscalls (Phase 13)
+| Syscall | Number | Description |
+|---------|--------|-------------|
+| `sys_poll` | 24 | Poll for I/O events |
+
+### TLS Syscalls (Phase 15)
+| Syscall | Number | Description |
+|---------|--------|-------------|
+| `sys_tls_connect` | 25 | TLS handshake |
+| `sys_tls_send` | 26 | Send encrypted data |
+| `sys_tls_recv` | 27 | Receive encrypted data |
+| `sys_tls_close` | 28 | Close TLS session |
+
+### Window Manager Syscalls (Phase 16)
+| Syscall | Number | Description |
+|---------|--------|-------------|
+| `sys_wm_create` | 29 | Create window |
+| `sys_wm_destroy` | 30 | Destroy window |
+| `sys_wm_blit` | 31 | Blit to window |
+| `sys_wm_move_resize` | 32 | Move/resize window |
+| `sys_wm_focus` | 33 | Focus window |
+| `sys_wm_event` | 34 | Poll window event |
 
 ## Project Structure
 
@@ -108,16 +141,21 @@ loom/
 │       ├── mod.rs         # OS abstraction
 │       └── fabricsys.rs   # FabricOS syscall interface
 ├── crates/
-│   ├── loom-core/         # Core types, colors, geometry
-│   ├── loom-layout/       # HTML/CSS parsing, layout engine
-│   ├── loom-render/       # wgpu rendering, text
-│   ├── loom-chrome/       # UI chrome, mode system
-│   ├── loom-content/      # HTTP client, content extraction
-│   ├── loom-js/           # JavaScript engine (stub)
-│   ├── loom-media/        # Video/audio (stub)
-│   └── loom-security/     # Security, permissions (stub)
+│   ├── loom-core/         # Core types, colors, geometry, text
+│   ├── loom-layout/       # HTML/CSS parsing, layout engine, navigation
+│   ├── loom-media/        # Image decoding (PNG, JPEG, WebP), caching
+│   └── loom-design/       # Design system, temperature, typography
 └── design/                # Figma exports, design tokens
 ```
+
+### Crate Details
+
+| Crate | Description | Key Modules |
+|-------|-------------|-------------|
+| `loom-core` | Shared primitives | `color`, `geometry`, `text`, `BrowserMode` |
+| `loom-layout` | Layout engine + navigation | `css_types`, `layout_engine`, `navigation`, `hittest`, `dom` |
+| `loom-media` | Media decoding | `image` (PNG, JPEG, WebP, GIF), `ImageCache`, `ResponsiveImage` |
+| `loom-design` | Design system | `temperature`, `typography`, `tension_curves` |
 
 ## Design System
 
@@ -153,14 +191,19 @@ let rect = TensionRect::new(x, y, width, height)
 | L0 | Bootstrap, window opening | ✅ Complete |
 | L1 | wgpu surface, 60fps | ✅ Complete |
 | L2 | Design system implementation | ✅ Complete |
-| L3 | HTML/CSS parsing | 🚧 Stubs |
-| L4 | Rendering pipeline | 🚧 Stubs |
-| L5 | Mode system | ✅ Complete |
-| L6 | Content acquisition | 🚧 Stubs |
-| L7 | JavaScript engine | 📋 Planned |
-| L8 | Media playback | 📋 Planned |
-| L9 | Security integration | 📋 Planned |
-| L10 | Polish, daily driver | 📋 Planned |
+| L3 | HTML/CSS parsing | ✅ Complete |
+| L4 | Rendering pipeline | ✅ Complete (framebuffer) |
+| L5 | Text rendering, layout | ✅ Complete |
+| L6 | Content acquisition | ✅ Complete |
+| L7 | TLS 1.3 + Interactive browsing | ✅ Complete |
+| L8 | Window Manager integration | ✅ Complete |
+| L9 | CSS Layout Engine | ✅ Complete |
+| L10 | Image decoding (PNG/JPEG/WebP) | ✅ Complete |
+| L11 | Links and Navigation | ✅ Complete |
+| L12 | JavaScript engine | 📋 Planned |
+| L13 | Media playback | 📋 Planned |
+| L14 | Security integration | 📋 Planned |
+| L15 | Polish, daily driver | 📋 Planned |
 
 ## Testing on FabricOS
 
@@ -182,10 +225,11 @@ make run
 
 Expected output:
 - FabricOS boots
-- Loom spawns as userspace process
-- Display allocates 1280x800 surface
-- Colored rectangles render with animation
-- Green dot (top-right) indicates socket syscalls working
+- Loom spawns as userspace process in a window
+- Window Manager renders title bar and decorations
+- Interactive browsing: scroll, URL editing, navigation
+- HTTPS support: TLS 1.3 handshake with example.com
+- Window can be moved, resized, focused with Alt+Tab
 
 ## License
 
