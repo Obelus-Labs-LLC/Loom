@@ -17,7 +17,7 @@ members = [
     # "crates/loom-security",   # TD-020: no_std HashMap issues, excluded temporarily
     "crates/loom-chrome",
     "crates/loom-render",
-    # "crates/loom-content",    # TD-021: type annotation issues, excluded temporarily
+    "crates/loom-content",    # TD-021: FIXED
     # "crates/loom-webgl",      # TD-018: wgpu API changes, excluded temporarily
     "crates/loom-ai",
     "crates/loom-devtools",

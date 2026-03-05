@@ -1,7 +1,5 @@
 //! Content extraction (Readability-style)
 
-use alloc::string::String;
-use alloc::vec::Vec;
 use crate::html::{extract_title, extract_body_text, strip_tags};
 use crate::http::HttpResponse;
 
@@ -36,6 +34,10 @@ impl ContentExtractor {
         let body_text = response.body_text()
             .ok_or(ExtractionError::ParseError)?;
         
+        // Extract title before consuming body_text
+        let title = extract_title(&body_text)
+            .unwrap_or_else(|| "Untitled".to_string());
+        
         // If HTML, extract text content
         let content = if response.is_html() {
             extract_body_text(&body_text)
@@ -49,9 +51,6 @@ impl ContentExtractor {
         if content.trim().is_empty() {
             return Err(ExtractionError::EmptyContent);
         }
-        
-        let title = extract_title(&body_text)
-            .unwrap_or_else(|| "Untitled".to_string());
         
         Ok(ExtractedContent {
             title,

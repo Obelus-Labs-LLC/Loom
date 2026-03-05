@@ -1,8 +1,5 @@
 //! HTML processing - tag stripping and text extraction
 
-use alloc::string::String;
-use alloc::vec::Vec;
-
 /// Strip HTML tags, preserve text content
 pub fn strip_tags(html: &str) -> String {
     let mut result = String::with_capacity(html.len() / 2);

@@ -1,9 +1,5 @@
 //! HTTP response parsing
 
-use alloc::string::String;
-use alloc::vec::Vec;
-use alloc::str;
-
 /// Parsed HTTP response
 #[derive(Debug, Clone)]
 pub struct HttpResponse {
@@ -54,6 +50,7 @@ impl HttpResponse {
         // Parse headers
         let mut headers = Vec::new();
         for line in lines {
+            let line: &str = line;
             if line.is_empty() {
                 continue;
             }
@@ -98,8 +95,8 @@ impl HttpResponse {
     pub fn header(&self, name: &str) -> Option<&str> {
         let name_lower = name.to_lowercase();
         self.headers.iter()
-            .find(|(k, _)| k == &name_lower)
-            .map(|(_, v)| v.as_str())
+            .find(|(k, _): &&(String, String)| k == &name_lower)
+            .map(|(_, v): &(String, String)| v.as_str())
     }
     
     /// Get body as text (UTF-8)
@@ -130,14 +127,14 @@ impl HttpResponse {
     /// Check if content is HTML
     pub fn is_html(&self) -> bool {
         self.content_type()
-            .map(|ct| ct.contains("text/html"))
+            .map(|ct: &str| ct.contains("text/html"))
             .unwrap_or(false)
     }
     
     /// Check if content is plain text
     pub fn is_text(&self) -> bool {
         self.content_type()
-            .map(|ct| ct.starts_with("text/"))
+            .map(|ct: &str| ct.starts_with("text/"))
             .unwrap_or(false)
     }
 }
