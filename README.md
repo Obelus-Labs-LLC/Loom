@@ -145,19 +145,43 @@ loom/
 ├── crates/
 │   ├── loom-core/         # Core types, colors, geometry, text
 │   ├── loom-layout/       # HTML/CSS parsing, layout engine, navigation
-│   ├── loom-media/        # Image decoding (PNG, JPEG, WebP), caching
-│   └── loom-design/       # Design system, temperature, typography
+│   ├── loom-chrome/       # Browser chrome, tabs, address bar
+│   ├── loom-render/       # Rendering engine
+│   ├── loom-content/      # Content handling, HTTP, forms
+│   ├── loom-media/        # Image/video/audio decoding
+│   ├── loom-webgl/        # WebGPU/wgpu graphics
+│   ├── loom-security/     # CSP, sandboxing, permissions
+│   ├── loom-wasm/         # WebAssembly runtime
+│   ├── loom-serviceworker/# Service Workers, offline apps
+│   ├── loom-webrtc/       # WebRTC peer-to-peer
+│   ├── loom-ai/           # AI-native mode, intent parsing
+│   ├── loom-a11y/         # Accessibility, ARIA, screen readers
+│   ├── loom-devtools/     # Developer tools
+│   ├── loom-extensions/   # Extension API
+│   └── loom-js/           # JavaScript engine (Boa/V8)
 └── design/                # Figma exports, design tokens
 ```
 
 ### Crate Details
 
-| Crate | Description | Key Modules |
-|-------|-------------|-------------|
-| `loom-core` | Shared primitives | `color`, `geometry`, `text`, `BrowserMode` |
-| `loom-layout` | Layout engine + navigation + forms | `css_types`, `layout_engine`, `navigation`, `hittest`, `dom`, `forms` |
-| `loom-media` | Media decoding | `image` (PNG, JPEG, WebP, GIF), `ImageCache`, `ResponsiveImage` |
-| `loom-design` | Design system | `temperature`, `typography`, `tension_curves` |
+| Crate | Description | Status |
+|-------|-------------|--------|
+| `loom-core` | Core types, colors, geometry, text | ✅ Active |
+| `loom-layout` | HTML/CSS parsing, layout engine | ✅ Active |
+| `loom-chrome` | Browser chrome, tabs, address bar | ✅ Active |
+| `loom-render` | Rendering engine | ✅ Active |
+| `loom-content` | Content handling, HTTP, forms | ✅ Active |
+| `loom-media` | Image/video/audio decoding | ✅ Active |
+| `loom-webgl` | WebGPU/wgpu graphics | ✅ Active |
+| `loom-security` | CSP, sandboxing, permissions | ✅ Active |
+| `loom-wasm` | WebAssembly runtime | ✅ Active |
+| `loom-serviceworker` | Service Workers, offline apps | ✅ Active |
+| `loom-webrtc` | WebRTC peer-to-peer | ✅ Active |
+| `loom-ai` | AI-native mode, intent parsing | ✅ Active |
+| `loom-a11y` | Accessibility, ARIA | ✅ Active |
+| `loom-devtools` | Developer tools | ✅ Active |
+| `loom-extensions` | Extension API | ✅ Active |
+| `loom-js` | JavaScript engine | ⏳ Excluded (V8 replacement) |
 
 ## Design System
 
@@ -267,8 +291,10 @@ Expected output:
 | ID | Item | Phase | Target | Risk | Status |
 |:---|:---|:---|:---|:---|:---|
 | TD-017 | Boa API drift | L13 | L23 | Medium | 📋 Planned - Full V8 replacement |
-| TD-018 | WebGPU API changes | L17 | L26 | Low | 📋 Planned - Modern wgpu bindings |
-| TD-019 | Media dependency updates | L14 | L26 | Low | 📋 Planned - Image crate refresh |
+| TD-018 | WebGPU API changes | L17 | L26 | Low | ✅ **FIXED** - wgpu 0.19 API updated |
+| TD-019 | Media dependency updates | L14 | L26 | Low | ✅ **FIXED** - Dependencies verified |
+| TD-020 | loom-security no_std | L15 | Post-L23 | Low | ✅ **FIXED** - hashbrown HashMap |
+| TD-021 | loom-content types | L6 | Post-L23 | Low | ✅ **FIXED** - Type annotations added |
 
 See [TECHNICAL_DEBT.md](TECHNICAL_DEBT.md) for full details.
 

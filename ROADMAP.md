@@ -29,8 +29,8 @@ AI-native dual-mode browser for FabricOS.
 
 | Phase | Component | Status | Description |
 |:---|:---|:---|:---|
-| BUILD-FIX | Workspace Clean | ⏳ In Progress | Feature unification resolved |
-| L29-PERF | Performance Baseline | ⏳ Next | 60fps benchmark |
+| BUILD-FIX | Workspace Clean | ✅ Complete | All crates restored, 12/13 active |
+| L29-PERF | Performance Baseline | ⏳ In Progress | 60fps benchmark |
 | L29-FIBER | React Fiber Work Loop | 📋 Planned | Pausable rendering |
 | CONCIERGE | Chat Overlay | 📋 Planned | Zustand + localStorage |
 
@@ -39,12 +39,8 @@ AI-native dual-mode browser for FabricOS.
 | Phase | Component | Status | Description | Dependencies |
 |:---|:---|:---|:---|:---|
 | L23 | V8 Integration | 📋 Planned | Replace Boa with V8 | FabricOS L13.7 |
-| L24-RESTORE | WebAssembly Restore | 📋 Planned | Fix loom-wasm crate | L23 |
-| L25-RESTORE | Service Workers Restore | 📋 Planned | Fix loom-serviceworker | L24 |
-| L26-RESTORE | Media Codecs Restore | 📋 Planned | Fix loom-media crate | L25 |
-| L27-RESTORE | WebRTC Restore | 📋 Planned | Fix loom-webrtc crate | L26 |
 | TD-017 | Boa API Drift | 📋 Planned | Full V8 replacement | L23 |
-| TD-018 | WebGPU API Update | 📋 Planned | Modern wgpu bindings | L26 |
+| L30 | Multi-User Sessions | 📋 Planned | CRDT collaboration | L29 |
 
 ## Medium-Term (Months 2-3)
 
@@ -79,5 +75,5 @@ AI-native dual-mode browser for FabricOS.
 
 ---
 
-*Last updated: March 2026*
+*Last updated: March 3, 2026*
 *Version: 5.0*
