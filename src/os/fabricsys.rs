@@ -1088,19 +1088,31 @@ pub enum Key {
 
 /// Keyboard scancode mapping (simplified PC/AT set 1)
 impl FabricKeyboard {
+    /// Convert ASCII character to Key (for KbRead syscall which returns ASCII)
+    pub fn ascii_to_key(ascii: u8) -> Key {
+        match ascii {
+            8 => Key::Backspace,
+            9 => Key::Tab,
+            10 | 13 => Key::Enter,
+            27 => Key::Escape,
+            b' '..=b'~' => Key::Ascii(ascii),
+            _ => Key::None,
+        }
+    }
+
     /// Read key from keyboard buffer (non-blocking)
     /// Returns Key::None if no key available
     pub fn read() -> Key {
         let ret = unsafe {
             syscall1(Syscall::KbRead as usize, 0)
         };
-        
+
         if ret <= 0 {
             return Key::None;
         }
         
-        let scancode = ret as u8;
-        Self::scancode_to_key(scancode)
+        // KbRead returns ASCII characters from the global keyboard buffer
+        Self::ascii_to_key(ret as u8)
     }
     
     /// Poll for key with timeout (ms)
@@ -1238,29 +1250,27 @@ impl FabricWindow {
     /// 
     /// # Returns
     /// Window ID on success
-    pub fn create(title: &str, x: i32, y: i32, width: u32, height: u32, flags: u32) -> Result<WindowId, i32> {
+    pub fn create(title: &str, x: i32, y: i32, width: u32, height: u32, _flags: u32) -> Result<WindowId, i32> {
         // Validate title length
         if title.len() > 128 {
             return Err(-1);
         }
-        
-        // Pack x,y into a single usize (16 bits each)
-        let xy_packed = ((x as u32 as usize) << 16) | (y as u32 as usize);
-        
+
+        // Kernel ABI: rdi=x, rsi=y, rdx=width, r10=height, r8=title_ptr, r9=title_len
         let ret = unsafe {
             syscall6(
                 Syscall::WmCreate as usize,
-                title.as_ptr() as usize,
-                title.len() as usize,
-                xy_packed,
+                x as usize,
+                y as usize,
                 width as usize,
                 height as usize,
-                flags as usize,
+                title.as_ptr() as usize,
+                title.len() as usize,
             )
         };
-        
-        if ret < 0 {
-            Err(ret as i32)
+
+        if ret < 0 || ret as u64 == u64::MAX {
+            Err(-1)
         } else {
             Ok(WindowId(ret as u32))
         }
@@ -1342,56 +1352,45 @@ impl FabricWindow {
     }
     
     /// Poll for window event (non-blocking)
-    /// 
+    ///
+    /// # Arguments
+    /// * `window` - Window to poll events for
+    ///
     /// # Returns
-    /// WindowEvent - KeyPress, Focus, Blur, Close, Resize, or None
-    pub fn poll_event() -> WindowEvent {
+    /// WindowEvent - KeyPress, Focus, Blur, Close, or None
+    pub fn poll_event(window: WindowId) -> WindowEvent {
         let mut event_buf = [0u8; 16]; // Buffer for event data
-        
+
+        // Kernel ABI: rdi=window_id, rsi=event_buf_ptr, rdx=buf_len
         let ret = unsafe {
-            syscall2(
+            syscall3(
                 Syscall::WmEvent as usize,
+                window.0 as usize,
                 event_buf.as_mut_ptr() as usize,
                 event_buf.len() as usize,
             )
         };
-        
+
         if ret <= 0 {
             return WindowEvent::None;
         }
-        
-        // Parse event from buffer
-        // Format: [event_type: u8, data...]
+
+        // Parse event from kernel serialized format: [type_tag, data, 0, 0]
+        // Kernel types: 1=KeyPress(scancode), 2=KeyRelease(scancode),
+        //               3=WindowClose, 4=WindowFocus, 5=WindowBlur
         match event_buf[0] {
-            1 => { // KeyPress
-                if ret >= 2 {
-                    let key = FabricKeyboard::scancode_to_key(event_buf[1]);
+            1 => { // KeyPress — data byte is raw scancode
+                let key = FabricKeyboard::scancode_to_key(event_buf[1]);
+                if key != Key::None {
                     WindowEvent::KeyPress(key)
                 } else {
                     WindowEvent::None
                 }
             }
-            2 => WindowEvent::Focus,
-            3 => WindowEvent::Blur,
-            4 => WindowEvent::Close,
-            5 => { // Resize
-                if ret >= 9 {
-                    let width = u32::from_le_bytes([event_buf[1], event_buf[2], event_buf[3], event_buf[4]]);
-                    let height = u32::from_le_bytes([event_buf[5], event_buf[6], event_buf[7], event_buf[8]]);
-                    WindowEvent::Resize { width, height }
-                } else {
-                    WindowEvent::None
-                }
-            }
-            6 => { // Move
-                if ret >= 9 {
-                    let x = i32::from_le_bytes([event_buf[1], event_buf[2], event_buf[3], event_buf[4]]);
-                    let y = i32::from_le_bytes([event_buf[5], event_buf[6], event_buf[7], event_buf[8]]);
-                    WindowEvent::Move { x, y }
-                } else {
-                    WindowEvent::None
-                }
-            }
+            2 => WindowEvent::None, // KeyRelease — ignored for now
+            3 => WindowEvent::Close,  // WindowClose
+            4 => WindowEvent::Focus,  // WindowFocus
+            5 => WindowEvent::None,   // WindowBlur — map to None (just re-render)
             _ => WindowEvent::None,
         }
     }
@@ -1412,12 +1411,12 @@ impl FabricWindow {
     /// Get screen dimensions from window manager
     /// Returns (width, height) or (0, 0) if not available
     pub fn get_screen_size() -> (u32, u32) {
-        // Create a window at (0,0) with size 0,0 - WM returns screen size
-        match Self::create("", 0, 0, 0, 0, WM_FLAG_NONE) {
+        // Create a small test window — WM may send resize event with screen size
+        match Self::create("", 0, 0, 1, 1, WM_FLAG_NONE) {
             Ok(win) => {
                 // Check if we got an event with screen size
                 for _ in 0..10 {
-                    if let WindowEvent::Resize { width, height } = Self::poll_event() {
+                    if let WindowEvent::Resize { width, height } = Self::poll_event(win) {
                         let _ = Self::destroy(win);
                         return (width, height);
                     }
@@ -1527,9 +1526,9 @@ impl DisplayBackend {
                 // Use direct keyboard syscall
                 FabricKeyboard::read()
             }
-            DisplayBackend::Windowed { .. } => {
+            DisplayBackend::Windowed { window, .. } => {
                 // Use window event system
-                match FabricWindow::poll_event() {
+                match FabricWindow::poll_event(*window) {
                     WindowEvent::KeyPress(key) => key,
                     WindowEvent::Close => Key::Escape, // Map close to Escape
                     _ => Key::None,

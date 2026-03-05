@@ -71,6 +71,7 @@ mod fabric_os {
     use alloc::vec;
     use alloc::vec::Vec;
     use alloc::string::String;
+    use alloc::string::ToString;
     
     // Design System Colors (BGRA format)
     pub const C_BLACK: u32 = 0xFF000000;
@@ -551,8 +552,8 @@ mod fabric_os {
         
         pub fn poll_event(&self) -> WindowEvent {
             match &self.backend {
-                DisplayBackend::Windowed { .. } => {
-                    FabricWindow::poll_event()
+                DisplayBackend::Windowed { window, .. } => {
+                    FabricWindow::poll_event(*window)
                 }
                 DisplayBackend::Fullscreen { .. } => {
                     // Poll keyboard directly for fullscreen
@@ -608,7 +609,7 @@ mod fabric_os {
             }
         }
         
-        fn draw_url_bar(&mut self, browser: &mut Browser) {
+        fn draw_url_bar(&mut self, browser: &Browser) {
             // URL bar background
             let bg_color = match browser.mode {
                 BrowserMode::UrlEditing => C_WARM_100,

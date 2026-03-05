@@ -9,19 +9,20 @@ description = "A Rust-native browser with AI-assisted and Traditional modes"
 [workspace]
 members = [
     "crates/loom-core",
+    "crates/loom-layout",
 ]
 resolver = "2"
 
 [features]
 default = ["std"]
-std = ["loom-core/std"]
+std = ["loom-core", "glam"]
 
-# Common dependencies (work for both std and no_std)
+# Dependencies only needed for std/desktop mode
 [dependencies]
-glam = { version = "0.25", default-features = false, features = ["libm"] }
+glam = { version = "0.25", default-features = false, features = ["libm"], optional = true }
 
 # Workspace crates
-loom-core = { path = "crates/loom-core", default-features = false }
+loom-core = { path = "crates/loom-core", default-features = false, optional = true }
 
 [profile.release]
 opt-level = 3
