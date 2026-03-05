@@ -188,35 +188,37 @@ let rect = TensionRect::new(x, y, width, height)
 
 ## Current Status
 
-See [ROADMAP.md](ROADMAP.md) for the complete L0-L22 phase breakdown.
+See [ROADMAP.md](ROADMAP.md) for the complete v5.0 roadmap.
+
+### Completed (L0-L28)
 
 | Phase | Feature | Status |
 |-------|---------|--------|
-| L0 | Bootstrap, window opening | ✅ Complete |
-| L1 | wgpu surface, 60fps | ✅ Complete |
-| L2 | Design system implementation | ✅ Complete |
-| L3 | HTML/CSS parsing | ✅ Complete |
-| L4 | Rendering pipeline | ✅ Complete (framebuffer) |
-| L5 | Text rendering, layout | ✅ Complete |
-| L6 | Content acquisition | ✅ Complete |
-| L7 | TLS 1.3 + Interactive browsing | ✅ Complete |
-| L8 | Window Manager integration | ✅ Complete |
-| L9 | CSS Layout Engine | ✅ Complete |
-| L10 | Image decoding (PNG/JPEG/WebP) | ✅ Complete |
-| L11 | Links and Navigation | ✅ Complete |
-| L12 | HTML Forms | ✅ Complete |
-| L12.5 | Voice Input | 🔄 Ready to implement |
-| L13 | JavaScript engine (Boa) | 🔄 In Progress |
-| L23 | V8 Integration | 📋 Planned (FabricOS kernel) |
-| L14 | Media playback | 📋 Planned |
-| L15 | Security integration | 📋 Planned |
-| L16 | Accessibility | 📋 Planned |
-| L17 | WebGL/GPU | 📋 Planned |
-| L18 | AI-Native Mode | 📋 Planned |
-| L19 | Performance optimization | 📋 Planned |
-| L20 | Servo Investigation | 📋 Planned |
-| L21 | Traditional Mode polish | 📋 Planned |
-| L22 | Daily driver | 📋 Planned |
+| L0-L12 | Core Browser | ✅ Complete |
+| L12.5 | Voice Input | ✅ Complete |
+| L13 | JavaScript (Boa) | ✅ Complete |
+| L14 | Media Playback | ✅ Complete |
+| L15 | Security | ✅ Complete |
+| L16 | Accessibility | ✅ Complete |
+| L17 | WebGL/GPU | ✅ Complete |
+| L18 | AI-Native Mode | ✅ Complete |
+| L19 | Performance | ✅ Complete |
+| L20 | Servo Decision | ✅ Complete |
+| L21 | Traditional Polish | ✅ Complete |
+| L22 | Daily Driver | ✅ Complete |
+| L24 | WebAssembly | ✅ Complete |
+| L25 | Service Workers | ✅ Complete |
+| L26 | Full Media Codecs | ✅ Complete |
+| L27 | WebRTC | ✅ Complete |
+| L28 | Accessibility (AAA) | ✅ Complete |
+
+### In Progress
+
+| Phase | Feature | Status |
+|-------|---------|--------|
+| BUILD-FIX | Workspace Clean | ⏳ In Progress |
+| L29-PERF | Performance Baseline | ⏳ Next |
+| L23 | V8 Integration | 📋 Planned (FabricOS L13.7) |
 
 ## Testing on FabricOS
 
@@ -259,6 +261,16 @@ Expected output:
 | `R` | Reload page |
 | `Enter` | Navigate to URL / Submit form |
 | `Esc` | Cancel editing / Exit form mode |
+
+## Technical Debt Register v5.0
+
+| ID | Item | Phase | Target | Risk | Status |
+|:---|:---|:---|:---|:---|:---|
+| TD-017 | Boa API drift | L13 | L23 | Medium | 📋 Planned - Full V8 replacement |
+| TD-018 | WebGPU API changes | L17 | L26 | Low | 📋 Planned - Modern wgpu bindings |
+| TD-019 | Media dependency updates | L14 | L26 | Low | 📋 Planned - Image crate refresh |
+
+See [TECHNICAL_DEBT.md](TECHNICAL_DEBT.md) for full details.
 
 ## License
 
