@@ -1,4 +1,4 @@
-//! Loom Browser - Phase L8: Window Manager Integration
+//! Loom Browser - Phase L13: JavaScript Engine
 //!
 //! Build for FabricOS: cargo +nightly build -Z build-std=core,compiler_builtins,alloc
 
@@ -69,6 +69,7 @@ mod fabric_os {
     use os::fabricsys::*;
     use loom_layout::navigation::{NavigationHistory, UrlResolver, VisitedUrls, CursorType, link_styles};
     use loom_layout::forms::{FormManager, Form, FormMethod, InputState, InputType};
+    use loom_js::{JSEngine, JSEngineConfig, JSResult};
     use alloc::format;
     use alloc::vec;
     use alloc::vec::Vec;
@@ -173,6 +174,8 @@ mod fabric_os {
         pub cursor: CursorType,
         /// Form manager (Phase L12)
         pub form_manager: FormManager,
+        /// JavaScript engine (Phase L13)
+        pub js_engine: Option<JSEngine>,
         /// Dynamic dimensions
         pub width: u32,
         pub height: u32,
@@ -195,12 +198,13 @@ mod fabric_os {
                 temperature: Temperature::Auto,
                 url_buffer: String::from(initial_url),
                 cursor_pos: 19,
-                status_message: String::from("Ready"),
+                status_message: String::from("Ready - J: JS test, C: click event"),
                 nav_history: NavigationHistory::new(),
                 url_resolver: UrlResolver::new(initial_url),
                 visited_urls: VisitedUrls::new(),
                 cursor: CursorType::Default,
                 form_manager: FormManager::new(),
+                js_engine: JSEngine::new().ok(),
                 width: WINDOW_WIDTH,
                 height: WINDOW_HEIGHT,
                 margin_x: 20,
@@ -472,6 +476,23 @@ mod fabric_os {
                 browser.status_message = format!("Switched to {} mode", mode_name);
             }
             
+            // Phase L13: Click action - fire JavaScript click events
+            Key::Ascii(b'c') | Key::Ascii(b'C') => {
+                fire_js_click_events(browser);
+            }
+            
+            // Phase L13: Execute arbitrary JS (for testing)
+            Key::Ascii(b'j') | Key::Ascii(b'J') => {
+                if let Some(ref mut engine) = browser.js_engine {
+                    let result = engine.execute("console.log('JS test from J key')");
+                    browser.status_message = if result.success {
+                        String::from("JS executed successfully")
+                    } else {
+                        format!("JS error: {:?}", result.error)
+                    };
+                }
+            }
+            
             _ => {}
         }
         
@@ -717,8 +738,115 @@ mod fabric_os {
         browser.form_manager = FormManager::new();
         browser.form_manager.add_form(create_demo_form());
         
+        // Phase L13: Initialize JavaScript engine and execute scripts
+        if let Some(ref mut engine) = browser.js_engine {
+            // Reset engine for new page
+            let _ = engine.reset();
+            
+            // Extract and register inline event handlers from HTML
+            extract_event_handlers(engine, &body);
+            
+            // Execute <script> tags
+            execute_page_scripts(engine, &body);
+            
+            browser.status_message = format!("Loaded {} with JS engine", browser.url);
+        }
+        
         display.render_browser(browser);
         display.present();
+    }
+    
+    /// Extract inline event handlers from HTML (Phase L13)
+    /// e.g., onclick="alert('hi')" -> register as JS event handler
+    fn extract_event_handlers(engine: &mut JSEngine, html: &str) {
+        // Simple pattern matching for onclick="..."
+        let mut pos = 0;
+        while let Some(start) = html[pos..].find("onclick=\"") {
+            let start = pos + start + 9; // Skip 'onclick="'
+            if let Some(end) = html[start..].find('"') {
+                let handler_code = &html[start..start + end];
+                
+                // Generate a unique element ID (in real impl, would parse actual element id)
+                let element_id = format!("elem_{}", start);
+                engine.register_event_handler(&element_id, "click", handler_code);
+                
+                pos = start + end + 1;
+            } else {
+                break;
+            }
+        }
+        
+        // Also extract onsubmit handlers
+        pos = 0;
+        while let Some(start) = html[pos..].find("onsubmit=\"") {
+            let start = pos + start + 10; // Skip 'onsubmit="'
+            if let Some(end) = html[start..].find('"') {
+                let handler_code = &html[start..start + end];
+                let element_id = format!("form_{}", start);
+                engine.register_event_handler(&element_id, "submit", handler_code);
+                
+                pos = start + end + 1;
+            } else {
+                break;
+            }
+        }
+    }
+    
+    /// Execute JavaScript from <script> tags (Phase L13)
+    fn execute_page_scripts(engine: &mut JSEngine, html: &str) {
+        let mut pos = 0;
+        while let Some(start) = html[pos..].find("<script>") {
+            let script_start = pos + start + 8; // Skip '<script>'
+            if let Some(end) = html[script_start..].find("</script>") {
+                let script_code = &html[script_start..script_start + end];
+                
+                // Execute the script
+                let result = engine.execute_script(script_code);
+                if !result.success {
+                    // Log script errors but don't fail page load
+                    if let Some(ref error) = result.error {
+                        // Would log to console in real implementation
+                    }
+                }
+                
+                pos = script_start + end + 9; // Skip '</script>'
+            } else {
+                break;
+            }
+        }
+    }
+    
+    /// Fire JavaScript click events (Phase L13)
+    fn fire_js_click_events(browser: &mut Browser) {
+        if let Some(ref mut engine) = browser.js_engine {
+            // In a real implementation, we would:
+            // 1. Get the element under the cursor from hit-testing
+            // 2. Get its element ID
+            // 3. Fire the click event on that specific element
+            
+            // For now, fire on demo elements
+            let demo_ids = ["elem_42", "btn_submit", "link_home"];
+            let mut fired = false;
+            
+            for id in &demo_ids {
+                if engine.has_event_handler(id, "click") {
+                    let result = engine.fire_event(id, "click");
+                    fired = true;
+                    if result.success {
+                        browser.status_message = format!("JS click event fired on {}", id);
+                    } else {
+                        browser.status_message = format!("JS error on {}: {:?}", id, result.error);
+                    }
+                    break; // Fire only first handler
+                }
+            }
+            
+            if !fired {
+                browser.status_message = String::from("No JS click handlers found");
+            }
+        } else {
+            browser.status_message = String::from("JavaScript engine not available");
+        }
     }
     
     /// Show error page

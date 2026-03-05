@@ -1,6 +1,6 @@
 //! Loom Layout Engine - CSS layout implementation
 //!
-//! Phase L12: Forms
+//! Phase L13: JavaScript Engine
 //! - CSS parsing and style computation
 //! - Block layout, flexbox, positioning
 //! - Box tree construction
@@ -31,7 +31,7 @@ pub use hittest::*;
 pub use forms::*;
 
 /// Version info
-pub const VERSION: &str = "0.1.0-L12";
+pub const VERSION: &str = "0.1.0-L13";
 
 /// Build layout tree from HTML document and CSS
 pub fn build_and_layout(html: &str, css: Option<&str>, viewport_width: f32, viewport_height: f32) -> LayoutNode {

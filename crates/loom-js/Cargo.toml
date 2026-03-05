@@ -2,7 +2,30 @@
 name = "loom-js"
 version = "0.1.0"
 edition = "2021"
+rust-version = "1.75"
+authors = ["Loom Team"]
+description = "JavaScript engine for Loom browser using Boa"
+license = "GPL-3.0"
 
 [dependencies]
 loom-core = { path = "../loom-core" }
+loom-layout = { path = "../loom-layout" }
+
+# Boa JavaScript engine
+boa_engine = { version = "0.17", features = ["console"] }
+boa_gc = "0.17"
+boa_runtime = "0.17"
+
+# Async runtime for fetch stub
+futures = "0.3"
+
+# Error handling
 anyhow = "1.0"
+thiserror = "1.0"
+
+# Logging
+log = "0.4"
+
+[features]
+default = ["std"]
+std = ["boa_engine"]
