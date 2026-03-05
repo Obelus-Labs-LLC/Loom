@@ -10,6 +10,7 @@ description = "A Rust-native browser with AI-assisted and Traditional modes"
 members = [
     "crates/loom-core",
     "crates/loom-layout",
+    "crates/loom-media",
 ]
 resolver = "2"
 

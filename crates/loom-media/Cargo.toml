@@ -3,6 +3,20 @@ name = "loom-media"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+default = ["std"]
+std = ["loom-core/std", "png", "jpeg-decoder", "webp"]
+
 [dependencies]
-loom-core = { path = "../loom-core" }
+loom-core = { path = "../loom-core", default-features = false }
+
+# Image decoding (std only)
+png = { version = "0.17", optional = true }
+jpeg-decoder = { version = "0.3", optional = true }
+webp = { version = "0.3", optional = true }
+
+# No-std compatible
+hashbrown = { version = "0.14", default-features = false }
+
+[dev-dependencies]
 anyhow = "1.0"

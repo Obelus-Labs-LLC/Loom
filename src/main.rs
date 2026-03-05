@@ -61,12 +61,13 @@ fn main() {
 }
 
 // ============================================
-// FABRICOS NO-STD IMPLEMENTATION - PHASE L8
+// FABRICOS NO-STD IMPLEMENTATION - PHASE L11
 // ============================================
 #[cfg(not(feature = "std"))]
 mod fabric_os {
     use super::*;
     use os::fabricsys::*;
+    use loom_layout::navigation::{NavigationHistory, UrlResolver, VisitedUrls, CursorType, link_styles};
     use alloc::format;
     use alloc::vec;
     use alloc::vec::Vec;
@@ -120,9 +121,15 @@ mod fabric_os {
         pub url_buffer: String,
         pub cursor_pos: usize,
         pub status_message: String,
-        pub history: Vec<String>,
-        pub history_pos: usize,
-        // Dynamic dimensions
+        /// Navigation history (Phase L11)
+        pub nav_history: NavigationHistory,
+        /// URL resolver for relative links (Phase L11)
+        pub url_resolver: UrlResolver,
+        /// Visited URLs for link styling (Phase L11)
+        pub visited_urls: VisitedUrls,
+        /// Current cursor type (Phase L11)
+        pub cursor: CursorType,
+        /// Dynamic dimensions
         pub width: u32,
         pub height: u32,
         pub margin_x: u32,
@@ -131,17 +138,20 @@ mod fabric_os {
     
     impl Browser {
         pub fn new() -> Self {
+            let initial_url = "http://example.com/";
             Self {
-                url: String::from("http://example.com/"),
+                url: String::from(initial_url),
                 page_title: String::new(),
                 content_lines: Vec::new(),
                 scroll_offset: 0,
                 mode: BrowserMode::Viewing,
-                url_buffer: String::from("http://example.com/"),
+                url_buffer: String::from(initial_url),
                 cursor_pos: 19,
                 status_message: String::from("Ready"),
-                history: Vec::new(),
-                history_pos: 0,
+                nav_history: NavigationHistory::new(),
+                url_resolver: UrlResolver::new(initial_url),
+                visited_urls: VisitedUrls::new(),
+                cursor: CursorType::Default,
                 width: WINDOW_WIDTH,
                 height: WINDOW_HEIGHT,
                 margin_x: 20,
@@ -169,11 +179,30 @@ mod fabric_os {
         }
         
         pub fn navigate(&mut self, url: &str) {
-            self.url = url.to_string();
-            self.url_buffer = url.to_string();
-            self.cursor_pos = url.len();
+            // Resolve relative URLs
+            let resolved = self.url_resolver.resolve(url);
+            
+            self.url = resolved.clone();
+            self.url_buffer = resolved.clone();
+            self.cursor_pos = self.url.len();
             self.mode = BrowserMode::Loading;
             self.status_message = format!("Loading {}...", url);
+            
+            // Update URL resolver base for subsequent relative links
+            self.url_resolver.set_base(&resolved);
+        }
+        
+        /// Navigate with history push (user-initiated navigation)
+        pub fn navigate_with_history(&mut self, url: &str) {
+            self.navigate(url);
+            self.nav_history.push(&self.url, Some(&self.page_title));
+            self.visited_urls.mark_visited(&self.url);
+        }
+        
+        /// Navigate for redirects (replaces current history entry)
+        pub fn navigate_redirect(&mut self, url: &str) {
+            self.navigate(url);
+            self.nav_history.replace(&self.url, Some(&self.page_title));
         }
         
         pub fn scroll_down(&mut self, lines: usize) {
@@ -199,28 +228,37 @@ mod fabric_os {
             self.scroll_offset = 0;
         }
         
-        pub fn add_to_history(&mut self, url: &str) {
-            if self.history.is_empty() || self.history.last().unwrap() != url {
-                self.history.push(url.to_string());
-                self.history_pos = self.history.len() - 1;
-            }
-        }
-        
+        /// Go back in history
         pub fn go_back(&mut self) -> Option<String> {
-            if self.history_pos > 0 {
-                self.history_pos -= 1;
-                Some(self.history[self.history_pos].clone())
-            } else {
-                None
-            }
+            self.nav_history.back().map(|url| url.to_string())
         }
         
+        /// Go forward in history
         pub fn go_forward(&mut self) -> Option<String> {
-            if self.history_pos + 1 < self.history.len() {
-                self.history_pos += 1;
-                Some(self.history[self.history_pos].clone())
+            self.nav_history.forward().map(|url| url.to_string())
+        }
+        
+        /// Check if we can go back
+        pub fn can_go_back(&self) -> bool {
+            self.nav_history.can_go_back()
+        }
+        
+        /// Check if we can go forward
+        pub fn can_go_forward(&self) -> bool {
+            self.nav_history.can_go_forward()
+        }
+        
+        /// Update cursor type based on hover target
+        pub fn update_cursor(&mut self, cursor: CursorType) {
+            self.cursor = cursor;
+        }
+        
+        /// Get link color for rendering (blue/purple based on visited status)
+        pub fn link_color(&self, href: &str) -> u32 {
+            if self.visited_urls.is_visited(href) {
+                link_styles::VISITED
             } else {
-                None
+                link_styles::UNVISITED
             }
         }
     }
@@ -457,6 +495,17 @@ mod fabric_os {
         // Parse HTTP response
         let (status, body) = match parse_http_response(&response) {
             Some((code, body)) => {
+                // Handle redirects (301, 302, 307, 308)
+                if (301..=308).contains(&code) && code != 304 {
+                    if let Some(new_url) = extract_redirect_url(&body, &response) {
+                        browser.status_message = format!("Redirecting to {}...", new_url);
+                        // Use replace for redirects (don't create new history entry)
+                        browser.navigate_redirect(&new_url);
+                        load_page(browser, display);
+                        return;
+                    }
+                }
+                
                 if code >= 400 {
                     show_error(browser, display, 
                         &format!("HTTP {}", code), 
@@ -476,7 +525,9 @@ mod fabric_os {
         
         // Update browser
         browser.set_content(&text_content);
-        browser.add_to_history(&browser.url.clone());
+        // Push to history (only for successful loads, not redirects)
+        browser.nav_history.push(&browser.url, Some(&browser.page_title));
+        browser.visited_urls.mark_visited(&browser.url);
         browser.mode = BrowserMode::Viewing;
         browser.status_message = format!("Loaded {} ({} bytes)", browser.url, response.len());
         
@@ -638,11 +689,20 @@ mod fabric_os {
             }
             
             // Draw navigation buttons (positioned relative to window width)
-            let back_x = self.width.saturating_sub(150);
-            let reload_x = self.width.saturating_sub(80);
-            draw_text(self.buffer, self.width, back_x, 18, "[B]ack", 
-                if browser.history_pos > 0 { C_OFF_WHITE } else { C_LIGHT_GRAY });
-            draw_text(self.buffer, self.width, reload_x, 18, "[R]eload", C_OFF_WHITE);
+            let back_x = self.width.saturating_sub(180);
+            let forward_x = self.width.saturating_sub(120);
+            let reload_x = self.width.saturating_sub(60);
+            
+            // Back button (enabled if can go back)
+            draw_text(self.buffer, self.width, back_x, 18, "[<]", 
+                if browser.can_go_back() { C_OFF_WHITE } else { C_LIGHT_GRAY });
+            
+            // Forward button (enabled if can go forward)
+            draw_text(self.buffer, self.width, forward_x, 18, "[>]", 
+                if browser.can_go_forward() { C_OFF_WHITE } else { C_LIGHT_GRAY });
+            
+            // Reload button
+            draw_text(self.buffer, self.width, reload_x, 18, "[R]", C_OFF_WHITE);
             
             // Separator line
             draw_rect(self.buffer, self.width, 0, URL_BAR_HEIGHT, self.width, 2, C_WARM_600);
@@ -851,6 +911,40 @@ mod fabric_os {
         }
         
         result.trim().to_string()
+    }
+    
+    /// Extract redirect URL from HTTP response headers
+    fn extract_redirect_url(body: &str, response: &[u8]) -> Option<String> {
+        // First try to find Location header in response
+        let header_text = String::from_utf8_lossy(response);
+        
+        // Look for Location: header (case-insensitive)
+        for line in header_text.lines() {
+            let lower = line.to_lowercase();
+            if lower.starts_with("location:") {
+                let url = line[9..].trim();
+                return Some(url.to_string());
+            }
+        }
+        
+        // Try meta refresh as fallback
+        let lower_body = body.to_lowercase();
+        if let Some(meta_pos) = lower_body.find("<meta") {
+            if let Some(http_equiv_pos) = lower_body[meta_pos..].find("http-equiv") {
+                let after_equiv = &lower_body[meta_pos + http_equiv_pos..meta_pos + http_equiv_pos + 50];
+                if after_equiv.contains("refresh") {
+                    if let Some(url_pos) = lower_body[meta_pos..].find("url=") {
+                        let start = meta_pos + url_pos + 4;
+                        let end = lower_body[start..].find(&['"', '\'', ' ', '>'][..])
+                            .map(|i| start + i)
+                            .unwrap_or(lower_body.len());
+                        return Some(body[start..end].to_string());
+                    }
+                }
+            }
+        }
+        
+        None
     }
     
     fn wrap_text(text: &str, width: usize) -> Vec<String> {

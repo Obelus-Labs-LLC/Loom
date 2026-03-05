@@ -1,10 +1,11 @@
 //! Loom Layout Engine - CSS layout implementation
 //!
-//! Phase L9: CSS Layout Engine
+//! Phase L11: Links and Navigation
 //! - CSS parsing and style computation
 //! - Block layout, flexbox, positioning
 //! - Box tree construction
 //! - Layout pass and paint preparation
+//! - Hit-testing and navigation
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
@@ -15,12 +16,16 @@ pub mod style_engine;
 pub mod layout_engine;
 pub mod dom;
 pub mod style;
+pub mod navigation;
+pub mod hittest;
 
 // Re-export main types
 pub use css_types::*;
 pub use style_engine::*;
 pub use layout_engine::*;
 pub use dom::*;
+pub use navigation::*;
+pub use hittest::*;
 
 /// Version info
 pub const VERSION: &str = "0.1.0-L9";
