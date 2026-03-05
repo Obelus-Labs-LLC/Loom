@@ -22,9 +22,9 @@ members = [
     "crates/loom-ai",
     "crates/loom-devtools",
     "crates/loom-extensions",
-    # "crates/loom-wasm",       # L24 - no_std, feature conflict
-    # "crates/loom-serviceworker", # L25 - no_std, feature conflict  
-    # "crates/loom-webrtc",     # L27 - no_std, feature conflict
+    "crates/loom-wasm",       # L24: WebAssembly runtime (no_std)
+    "crates/loom-serviceworker", # L25: Service Workers (no_std)  
+    "crates/loom-webrtc",     # L27: WebRTC peer-to-peer (no_std)
     "crates/loom-a11y",
 ]
 resolver = "2"
