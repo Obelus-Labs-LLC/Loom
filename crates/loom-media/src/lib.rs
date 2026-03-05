@@ -32,6 +32,7 @@
 extern crate alloc;
 
 pub mod audio;
+pub mod hw_accel;
 pub mod image;
 pub mod media_player;
 pub mod video;
@@ -43,7 +44,7 @@ pub use media_player::*;
 pub use video::*;
 
 /// Version of the media crate
-pub const VERSION: &str = "0.2.0-L14";
+pub const VERSION: &str = "0.2.5-L16.5";
 
 /// Check if video support is available
 pub fn is_video_supported() -> bool {

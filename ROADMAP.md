@@ -32,6 +32,7 @@ AI-Native web browser for FabricOS. Dual-mode architecture: Traditional (full we
 | L14 | Media Playback | Video/audio decoding, streaming | HTML5 video works | L13 |
 | L15 | Security & Sandboxing | CSP, sandboxed iframes, permission UI | Secure browsing, policy enforcement | L14 |
 | L16 | Accessibility | Screen reader support, ARIA, keyboard nav | WCAG 2.1 AA compliance | L15 |
+| L16.5 | Hardware Media Acceleration | Platform detection, wgpu texture import, YUV shaders | 1080p60 <10% CPU, zero-copy | L16 |
 | L17 | WebGL/GPU Acceleration | WebGL context, wgpu integration | 3D content renders | L16 |
 | L18 | AI-Native Mode | Intent parser, agent integration, minimal chrome | AI-assisted browsing works | L17 |
 | L19 | Performance Optimization | Lazy loading, virtual scrolling, caching | 60fps on complex pages | L18 |
@@ -70,12 +71,12 @@ Loom "Feature Complete" for Tier 3: After L20 (Servo Investigation) when decisio
 
 | Range | Status | Count |
 |:---|:---|:---|
-| L0-L15 | Complete | 16 phases |
+| L0-L16.5 | Complete | 17 phases |
 | L12.5 | Ready to implement | 1 phase |
-| L16-L22 | Planned, awaiting implementation | 7 phases |
+| L17-L22 | Planned, awaiting implementation | 6 phases |
 
-Latest Completed: L15 (Security & Sandboxing)
-Next Up: L16 (Accessibility)
+Latest Completed: L16.5 (Hardware Media Acceleration)
+Next Up: L17 (WebGL/GPU Acceleration)
 
 ---
 
