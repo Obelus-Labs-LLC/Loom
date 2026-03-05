@@ -70,12 +70,12 @@ Loom "Feature Complete" for Tier 3: After L20 (Servo Investigation) when decisio
 
 | Range | Status | Count |
 |:---|:---|:---|
-| L0-L14 | Complete | 15 phases |
+| L0-L15 | Complete | 16 phases |
 | L12.5 | Ready to implement | 1 phase |
-| L15-L22 | Planned, awaiting implementation | 8 phases |
+| L16-L22 | Planned, awaiting implementation | 7 phases |
 
-Latest Completed: L14 (Media Playback)
-Next Up: L15 (Security & Sandboxing)
+Latest Completed: L15 (Security & Sandboxing)
+Next Up: L16 (Accessibility)
 
 ---
 

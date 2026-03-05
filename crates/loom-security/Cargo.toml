@@ -1,8 +1,35 @@
 [package]
 name = "loom-security"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
+rust-version = "1.75"
+authors = ["Loom Team"]
+description = "Security and sandboxing for Loom browser - CSP, permissions, iframe sandboxing"
+license = "GPL-3.0"
 
 [dependencies]
 loom-core = { path = "../loom-core" }
-anyhow = "1.0"
+loom-js = { path = "../loom-js" }
+
+# URL parsing for origin checks
+url = { version = "2.5", default-features = false }
+
+# Base64 decoding for CSP nonces
+base64 = { version = "0.22", default-features = false, features = ["alloc"] }
+
+# Hash maps
+hashbrown = { version = "0.14", default-features = false }
+
+# Regex for CSP parsing (std only)
+regex = { version = "1.10", optional = true }
+
+# Error handling
+thiserror = { version = "1.0", default-features = false }
+
+# Logging
+log = { version = "0.4", default-features = false }
+
+[features]
+default = ["std"]
+std = ["regex"]
+no_std = []
