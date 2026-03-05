@@ -153,7 +153,7 @@ loom/
 | Crate | Description | Key Modules |
 |-------|-------------|-------------|
 | `loom-core` | Shared primitives | `color`, `geometry`, `text`, `BrowserMode` |
-| `loom-layout` | Layout engine + navigation | `css_types`, `layout_engine`, `navigation`, `hittest`, `dom` |
+| `loom-layout` | Layout engine + navigation + forms | `css_types`, `layout_engine`, `navigation`, `hittest`, `dom`, `forms` |
 | `loom-media` | Media decoding | `image` (PNG, JPEG, WebP, GIF), `ImageCache`, `ResponsiveImage` |
 | `loom-design` | Design system | `temperature`, `typography`, `tension_curves` |
 
@@ -200,7 +200,8 @@ let rect = TensionRect::new(x, y, width, height)
 | L9 | CSS Layout Engine | ✅ Complete |
 | L10 | Image decoding (PNG/JPEG/WebP) | ✅ Complete |
 | L11 | Links and Navigation | ✅ Complete |
-| L12 | JavaScript engine | 📋 Planned |
+| L12 | HTML Forms | ✅ Complete |
+| L13 | JavaScript engine | 📋 Planned |
 | L13 | Media playback | 📋 Planned |
 | L14 | Security integration | 📋 Planned |
 | L15 | Polish, daily driver | 📋 Planned |
