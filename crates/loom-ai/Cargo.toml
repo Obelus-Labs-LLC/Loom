@@ -7,9 +7,13 @@ authors = ["Loom Team"]
 description = "AI-Native mode for Loom browser - intent parsing and agent integration"
 license = "GPL-3.0"
 
+[features]
+default = ["std"]
+std = []
+
 [dependencies]
-loom-core = { path = "../loom-core" }
-loom-layout = { path = "../loom-layout" }
+loom-core = { path = "../loom-core", default-features = false, features = ["std"] }
+loom-layout = { path = "../loom-layout", default-features = false, features = ["std"] }
 
 # Natural language processing (lightweight)
 regex = { version = "1.10", default-features = false, features = ["unicode-perl"] }
@@ -17,8 +21,8 @@ regex = { version = "1.10", default-features = false, features = ["unicode-perl"
 # URL parsing
 url = { version = "2.5", default-features = false }
 
-# Serialization
-serde = { version = "1.0", features = ["derive"] }
+# Serialization (no_std compatible)
+serde = { version = "1.0", default-features = false, features = ["derive", "alloc"] }
 serde_json = { version = "1.0", default-features = false, features = ["alloc"] }
 
 # Error handling
