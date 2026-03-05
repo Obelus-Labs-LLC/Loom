@@ -206,7 +206,9 @@ See [ROADMAP.md](ROADMAP.md) for the complete L0-L22 phase breakdown.
 | L11 | Links and Navigation | ✅ Complete |
 | L12 | HTML Forms | ✅ Complete |
 | L12.5 | Voice Input | 🔄 Ready to implement |
-| L13 | JavaScript engine | 📋 Planned |
+| L13 | JavaScript engine (Boa) | 🔄 In Progress |
+| L13.5 | V8 Platform Interface | ✅ Complete (FabricOS kernel) |
+| L23 | V8 Integration | 📋 Planned (see kernel/ directory) |
 | L14 | Media playback | 📋 Planned |
 | L15 | Security integration | 📋 Planned |
 | L16 | Accessibility | 📋 Planned |
