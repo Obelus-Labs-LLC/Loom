@@ -14,6 +14,10 @@ members = [
     "crates/loom-layout",
     "crates/loom-media",
     "crates/loom-js",
+    "crates/loom-security",
+    "crates/loom-chrome",
+    "crates/loom-render",
+    "crates/loom-content",
 ]
 resolver = "2"
 

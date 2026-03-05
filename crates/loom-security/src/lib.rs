@@ -32,6 +32,7 @@ pub mod csp;
 pub mod iframe;
 pub mod permissions;
 pub mod referrer;
+pub mod sentinel;
 
 // Re-export main types
 pub use csp::*;
