@@ -3,9 +3,9 @@ name = "loom-layout"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+default = ["std"]
+std = ["loom-core/std"]
+
 [dependencies]
-loom-core = { path = "../loom-core" }
-html5ever = "0.27"
-cssparser = "0.33"
-markup5ever_rcdom = "0.3"
-anyhow = "1.0"
+loom-core = { path = "../loom-core", default-features = false }

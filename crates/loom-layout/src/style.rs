@@ -1,19 +1,4 @@
-//! CSS parsing with cssparser
+//! Style module - re-exports from style_engine and css_types
 
-/// Parsed stylesheet
-#[derive(Debug, Default)]
-pub struct Stylesheet {
-    pub rules: Vec<Rule>,
-}
-
-#[derive(Debug)]
-pub struct Rule {
-    pub selectors: Vec<String>,
-    pub declarations: Vec<Declaration>,
-}
-
-#[derive(Debug)]
-pub struct Declaration {
-    pub property: String,
-    pub value: String,
-}
+pub use crate::css_types::*;
+pub use crate::style_engine::*;
