@@ -46,10 +46,10 @@ AI-Native web browser for FabricOS. Dual-mode architecture: Traditional (full we
 | Decision | Phase | Status | Notes |
 |:---|:---|:---|:---|
 | AI-Native vs Traditional Mode Split | L2 (design) / L18 (implementation) | Design complete, Implementation planned | Design system supports both; AI-Native is differentiator |
-| JavaScript Engine | L13 | UNDECIDED | Boa (Rust-native, no_std friendly) vs V8 (performance, compatibility) |
+| JavaScript Engine | L13 | COMPLETE | Boa (Rust-native) - Full implementation with DOM bindings, event handling, sandbox |
 | Servo Integration | L20 | Research phase | Per FabricOS README: AI-Native Loom is priority, Servo is compatibility fallback |
 | Voice STT Backend | L12.5 | UNDECIDED | Local Whisper (privacy, offline) vs Web Speech API (cloud) |
-| Media Codec Strategy | L14 | UNDECIDED | Software decode vs hardware acceleration via FabricOS |
+| Media Codec Strategy | L14 | COMPLETE | Software decode (rav1d + symphonia), hardware acceleration deferred per spec |
 
 ---
 
@@ -70,12 +70,12 @@ Loom "Feature Complete" for Tier 3: After L20 (Servo Investigation) when decisio
 
 | Range | Status | Count |
 |:---|:---|:---|
-| L0-L12 | Complete | 13 phases |
+| L0-L14 | Complete | 15 phases |
 | L12.5 | Ready to implement | 1 phase |
-| L13-L22 | Planned, awaiting implementation | 10 phases |
+| L15-L22 | Planned, awaiting implementation | 8 phases |
 
-Latest Completed: L12 (HTML Forms)
-Next Up: L12.5 (Voice Input)
+Latest Completed: L14 (Media Playback)
+Next Up: L15 (Security & Sandboxing)
 
 ---
 
@@ -95,7 +95,7 @@ Next Up: L12.5 (Voice Input)
 |:---|:---|:---|
 | loom-voice | L12.5 | STT integration, microphone handling, waveform UI |
 | loom-js | L13 | JavaScript engine bindings (Boa or V8) |
-| loom-video | L14 | Video/audio playback, streaming |
+| loom-video | L14 | Video/audio playback, streaming - COMPLETE in loom-media |
 | loom-security | L15 | CSP, sandboxing, permission management |
 | loom-accessibility | L16 | Screen reader, ARIA, keyboard navigation |
 | loom-webgl | L17 | WebGL context, wgpu integration |
