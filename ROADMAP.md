@@ -29,8 +29,6 @@ AI-Native web browser for FabricOS. Dual-mode architecture: Traditional (full we
 | L12 | HTML Forms | Input elements, form submission, validation | Login forms work, POST data | L11 |
 | L12.5 | Voice Input | Microphone toggle, waveform visualization, STT integration, voice confirmation | Voice-to-text in address bar and form fields | L12 |
 | L13 | JavaScript Engine (Boa) | Boa JS integration, basic DOM bindings | JS executes, modifies DOM | L12.5 |
-| L13.5 | V8 Platform Interface | `#![no_std]` V8 platform for FabricOS | Memory, threads, time, entropy services | L13 |
-| L13.6 | V8 Build Integration | Compile V8 for `x86_64-unknown-none` | V8 links with FabricOS syscalls | L13.5 |
 | L14 | Media Playback | Video/audio decoding, streaming | HTML5 video works | L13 |
 | L15 | Security & Sandboxing | CSP, sandboxed iframes, permission UI | Secure browsing, policy enforcement | L14 |
 | L16 | Accessibility | Screen reader support, ARIA, keyboard nav | WCAG 2.1 AA compliance | L15 |
