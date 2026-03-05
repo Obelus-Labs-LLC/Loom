@@ -1,0 +1,33 @@
+[package]
+name = "loom-webgl"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+authors = ["Loom Team"]
+description = "WebGL/GPU acceleration for Loom browser using wgpu"
+license = "GPL-3.0"
+
+[dependencies]
+loom-core = { path = "../loom-core" }
+
+# wgpu for cross-platform GPU acceleration
+wgpu = { version = "0.19", features = ["webgl"] }
+
+# Math library for 3D transformations
+glam = { version = "0.25", features = ["bytemuck"] }
+
+# Raw window handle for surface creation
+raw-window-handle = "0.6"
+
+# Error handling
+anyhow = "1.0"
+thiserror = "1.0"
+
+# Logging
+log = "0.4"
+
+# Byte manipulation for GPU buffers
+bytemuck = { version = "1.14", features = ["derive"] }
+
+[dev-dependencies]
+wgpu-test = "0.19"
