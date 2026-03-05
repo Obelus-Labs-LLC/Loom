@@ -12,13 +12,13 @@ repository = "https://github.com/Obelus-Labs-LLC/Loom"
 members = [
     "crates/loom-core",
     "crates/loom-layout",
-    # "crates/loom-media",      # TD-019: dependency API drift, excluded temporarily
+    "crates/loom-media",      # TD-019: FIXED - dependency API drift resolved
     # "crates/loom-js",         # TD-017: Boa API drift, excluded temporarily
     "crates/loom-security",   # TD-020: FIXED
     "crates/loom-chrome",
     "crates/loom-render",
     "crates/loom-content",    # TD-021: FIXED
-    # "crates/loom-webgl",      # TD-018: wgpu API changes, excluded temporarily
+    "crates/loom-webgl",      # TD-018: FIXED - wgpu API changes resolved
     "crates/loom-ai",
     "crates/loom-devtools",
     "crates/loom-extensions",

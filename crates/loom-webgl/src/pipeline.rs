@@ -113,12 +113,12 @@ impl PipelineDescriptor {
             label: self.label.as_ref().map(|s| s.as_str()),
             layout: Some(&pipeline_layout),
             vertex: wgpu::VertexState {
-                module: &shader,
+                module: shader.module(),
                 entry_point: &self.vertex_entry,
                 buffers: &self.vertex_layouts,
             },
             fragment: self.fragment_entry.as_ref().map(|entry| wgpu::FragmentState {
-                module: &shader,
+                module: shader.module(),
                 entry_point: entry,
                 targets: &self.color_targets,
             }),

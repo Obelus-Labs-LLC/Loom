@@ -28,3 +28,6 @@ log = "0.4"
 
 # Byte manipulation for GPU buffers
 bytemuck = { version = "1.14", features = ["derive"] }
+
+# Image loading for textures
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }

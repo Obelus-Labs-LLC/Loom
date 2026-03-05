@@ -23,22 +23,8 @@ impl Shader {
             source: wgpu::ShaderSource::Wgsl(source.into()),
         });
 
-        // Check for compilation errors
-        if let Some(info) = module.get_compilation_info() {
-            for msg in info.messages {
-                match msg.message_type {
-                    wgpu::CompilationMessageType::Error => {
-                        return Err(anyhow!("Shader compilation error: {}", msg.message));
-                    }
-                    wgpu::CompilationMessageType::Warning => {
-                        log::warn!("Shader warning: {}", msg.message);
-                    }
-                    wgpu::CompilationMessageType::Info => {
-                        log::info!("Shader info: {}", msg.message);
-                    }
-                }
-            }
-        }
+        // Note: Shader compilation info is no longer available in wgpu 0.19+
+        // Compilation errors are returned during pipeline creation
 
         Ok(Self {
             module,
@@ -48,22 +34,12 @@ impl Shader {
     }
 
     /// Create a shader from SPIR-V binary
+    /// Note: SPIR-V support requires the `spirv` feature in wgpu
+    #[cfg(feature = "spirv")]
     pub fn from_spirv(device: &wgpu::Device, data: &[u32], label: &str) -> Result<Self> {
-        let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some(label),
-            source: wgpu::ShaderSource::SpirV(std::borrow::Cow::Borrowed(data)),
-        });
-
-        Ok(Self {
-            module,
-            entry_point: "main".to_string(),
-            stage: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
-        })
-    }
-
-    /// Get the shader module
-    pub fn module(&self) -> &wgpu::ShaderModule {
-        &self.module
+        // SPIR-V support removed in wgpu 0.19 without special features
+        // Use WGSL instead for cross-platform compatibility
+        Err(anyhow!("SPIR-V support requires wgpu spirv feature"))
     }
 
     /// Set entry point
@@ -81,6 +57,16 @@ impl Shader {
     pub fn with_stage(mut self, stage: wgpu::ShaderStages) -> Self {
         self.stage = stage;
         self
+    }
+
+    /// Get the shader module
+    pub fn module(&self) -> &wgpu::ShaderModule {
+        &self.module
+    }
+
+    /// Get shader stage
+    pub fn stage(&self) -> wgpu::ShaderStages {
+        self.stage
     }
 }
 
