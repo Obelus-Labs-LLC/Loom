@@ -19,6 +19,7 @@ members = [
     "crates/loom-render",
     "crates/loom-content",
     "crates/loom-webgl",
+    "crates/loom-ai",
 ]
 resolver = "2"
 
