@@ -12,7 +12,7 @@ loom-core = { path = "../loom-core" }
 loom-layout = { path = "../loom-layout" }
 
 # Boa JavaScript engine
-boa_engine = { version = "0.17", features = ["console"] }
+boa_engine = "0.17"
 boa_gc = "0.17"
 boa_runtime = "0.17"
 
@@ -28,4 +28,4 @@ log = "0.4"
 
 [features]
 default = ["std"]
-std = ["boa_engine"]
+std = []

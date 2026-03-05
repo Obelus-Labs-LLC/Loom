@@ -1,12 +1,18 @@
 //! Loom Layout Engine - CSS layout implementation
 //!
-//! Phase L13: JavaScript Engine
+//! Phase L21: Traditional Mode Polish
 //! - CSS parsing and style computation
 //! - Block layout, flexbox, positioning
 //! - Box tree construction
 //! - Layout pass and paint preparation
 //! - Hit-testing and navigation
 //! - HTML forms with validation
+//! - Virtual scrolling for long pages
+//! - Layout caching to avoid reflow
+//! - Lazy image loading
+//! - CSS Grid and subgrid
+//! - Container queries (@container)
+//! - @supports feature queries
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
@@ -20,6 +26,11 @@ pub mod style;
 pub mod navigation;
 pub mod hittest;
 pub mod forms;
+pub mod virtual_scroll;
+pub mod layout_cache;
+pub mod lazy_image;
+pub mod resource_priority;
+pub mod css_grid;
 
 // Re-export main types
 pub use css_types::*;
@@ -29,9 +40,14 @@ pub use dom::*;
 pub use navigation::*;
 pub use hittest::*;
 pub use forms::*;
+pub use virtual_scroll::*;
+pub use layout_cache::*;
+pub use lazy_image::*;
+pub use resource_priority::*;
+pub use css_grid::*;
 
 /// Version info
-pub const VERSION: &str = "0.1.0-L13";
+pub const VERSION: &str = "0.21.0-L21";
 
 /// Build layout tree from HTML document and CSS
 pub fn build_and_layout(html: &str, css: Option<&str>, viewport_width: f32, viewport_height: f32) -> LayoutNode {

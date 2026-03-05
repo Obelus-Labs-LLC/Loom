@@ -8,10 +8,11 @@ description = "Media playback for Loom browser - video, audio, and images"
 license = "GPL-3.0"
 
 [features]
-default = ["std", "video", "audio"]
-std = ["loom-core/std", "png", "jpeg-decoder", "webp", "symphonia", "rav1d"]
+default = ["std", "video", "audio", "hwaccel"]
+std = ["loom-core/std", "png", "jpeg-decoder", "webp", "symphonia", "rav1d", "wgpu", "num_cpus"]
 video = ["rav1d"]
 audio = ["symphonia"]
+hwaccel = ["wgpu", "num_cpus"]
 
 [dependencies]
 loom-core = { path = "../loom-core", default-features = false }
@@ -43,13 +44,6 @@ thiserror = { version = "1.0", default-features = false }
 # Hardware acceleration
 wgpu = { version = "0.19", optional = true }
 num_cpus = { version = "1.16", optional = true }
-
-[features]
-default = ["std", "video", "audio", "hwaccel"]
-std = ["loom-core/std", "png", "jpeg-decoder", "webp", "symphonia", "rav1d", "wgpu", "num_cpus"]
-video = ["rav1d"]
-audio = ["symphonia"]
-hwaccel = ["wgpu", "num_cpus"]
 
 [dev-dependencies]
 anyhow = "1.0"

@@ -1,6 +1,6 @@
 //! Loom JS - JavaScript Engine
 //!
-//! Phase L13: JavaScript Engine
+//! Phase L19: Performance Optimization
 //! 
 //! A JavaScript engine for the Loom browser built on Boa,
 //! a pure Rust JavaScript engine.
@@ -11,6 +11,7 @@
 //! - **Event Handling**: onclick, onsubmit, and other events fire JavaScript
 //! - **Basic APIs**: document, window, console.log, fetch stub
 //! - **Sandbox**: JavaScript runs isolated with no filesystem access
+//! - **GC Tuning**: Generational collection with frame-aware scheduling
 //!
 //! ## Example
 //! ```rust
@@ -39,15 +40,17 @@ pub mod dom_bindings;
 pub mod engine;
 pub mod events;
 pub mod sandbox;
+pub mod gc_tuning;
 
 // Re-export commonly used types
 pub use engine::{JSEngine, JSEngineConfig, JSResult};
 pub use events::{EventManager, Event, EventType, EventHandler};
 pub use sandbox::{Sandbox, SandboxConfig, SecurityPolicy, SandboxError};
 pub use dom_bindings::{DomBridge, DomChangeType};
+pub use gc_tuning::*;
 
 /// Version of the JavaScript engine
-pub const VERSION: &str = "0.2.0-L13";
+pub const VERSION: &str = "0.3.0-L19";
 
 /// Check if Boa JavaScript engine is available
 pub fn is_engine_available() -> bool {

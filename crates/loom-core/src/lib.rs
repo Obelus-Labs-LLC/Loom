@@ -6,10 +6,20 @@ extern crate alloc;
 pub mod color;
 pub mod geometry;
 pub mod text;
+pub mod tab_manager;
+pub mod battery;
+pub mod session_restore;
+pub mod auto_update;
+pub mod onboarding;
 
 pub use color::*;
 pub use geometry::*;
 pub use text::*;
+pub use tab_manager::*;
+pub use battery::*;
+pub use session_restore::*;
+pub use auto_update::*;
+pub use onboarding::*;
 
 /// Browser modes
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]

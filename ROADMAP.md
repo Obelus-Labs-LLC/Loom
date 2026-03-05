@@ -37,8 +37,60 @@ AI-Native web browser for FabricOS. Dual-mode architecture: Traditional (full we
 | L18 | AI-Native Mode | Intent parser, agent integration, minimal chrome | AI-assisted browsing works | L17 |
 | L19 | Performance Optimization | Lazy loading, virtual scrolling, caching | 60fps on complex pages | L18 |
 | L20 | Servo Investigation | Research Servo WebView, hybrid engine decision | Decision: integrate Servo or continue custom | L19 |
-| L21 | Traditional Mode Polish | Full web compatibility, dev tools, extensions | Chrome parity for complex apps | L20 |
-| L22 | Daily Driver | Battery optimization, crash recovery, auto-update | Usable as primary browser | L21 |
+| L21 | Traditional Mode Polish | DevTools, extensions API, CSS Grid, tab discarding | Chrome parity for complex apps | L20 |
+| L22 | Daily Driver | Battery optimization, crash recovery, auto-update, onboarding | Usable as primary browser | L21 |
+| L23 | V8 Integration | Replace Boa with V8 in Traditional mode, JIT compilation, performance parity with Chrome | Octane score within 20% of Chrome | L22 |
+| L24 | WebAssembly | WASM runtime, compiler pipeline, memory sandboxing | Unity WebGL demo runs at 60fps | L23 |
+| L25 | Service Workers | Background execution, offline apps, push notifications | PWA install, offline Gmail works | L24 |
+| L26 | Full Media Codecs | H.265/HEVC, AV1 hardware, Dolby, DTS | Netflix 4K HDR playback | L25 |
+| L27 | WebRTC | Peer-to-peer video, data channels, screen share | Video call with 4 participants, no drops | L26 |
+| L28 | Accessibility | Screen reader APIs, full WCAG 2.1 AAA, voice navigation | Orca/NVDA integration, keyboard-only usable | L27 |
+
+---
+
+## AI-Native vs Traditional Mode Strategy
+
+### AI-Native Mode (L18) — Pure & Minimal
+The AI-Native mode remains **intentionally minimal and pure**:
+- Intent-driven navigation ("show me flights to Tokyo")
+- Concierge agent integration
+- Zero chrome — content-first presentation
+- Voice-first input with optional text
+- Predictive page loading via Groundskeeper
+- **No DevTools, no extensions, no settings clutter**
+
+Target user: Information seekers, researchers, knowledge workers who want answers, not chrome.
+
+### Traditional Mode (L13-L28) — Full Web Compatibility
+Traditional mode gets **all daily driver features plus innovations**:
+- Full web standards compliance
+- Extensions (Manifest V3 subset)
+- DevTools (console, inspector, network)
+- Performance optimizations (battery, throttling)
+- Crash recovery and auto-update
+- V8 JavaScript engine with JIT
+- WebAssembly support
+- Service Workers and PWAs
+- Full media codec stack
+- WebRTC for video conferencing
+- Accessibility (WCAG 2.1 AAA)
+
+Target user: Power users, developers, enterprise, anyone needing full web compatibility.
+
+---
+
+## Differentiation Strategy
+
+Loom differentiates from Chrome/Firefox/Safari through:
+
+| Feature | Loom Approach | Chrome/Firefox |
+|:---|:---|:---|
+| **Zero-Copy Architecture** | Minimal data movement between engine, GPU, and AI layers | Multiple copies through compositor, JS engine, GPU process |
+| **Predictive Rendering** | Groundskeeper pre-renders pages before user navigates | Reactive rendering only |
+| **Capability-Scoped Security** | Permissions per capability (AI, camera, location) with hardware-backed isolation | Origin-based sandboxing |
+| **Local-First Sync** | Chauffeur syncs bookmarks/history via local mesh, cloud optional | Cloud-first sync (Google/FF accounts) |
+| **Native AI Integration** | First-class AI assistant, not a bolt-on extension | Extensions or side panels |
+| **Dual-Mode UX** | AI-Native mode for pure browsing, Traditional for full compatibility | Single-mode, one-size-fits-all |
 
 ---
 
@@ -46,11 +98,13 @@ AI-Native web browser for FabricOS. Dual-mode architecture: Traditional (full we
 
 | Decision | Phase | Status | Notes |
 |:---|:---|:---|:---|
-| AI-Native vs Traditional Mode Split | L2 (design) / L18 (implementation) | Design complete, Implementation planned | Design system supports both; AI-Native is differentiator |
-| JavaScript Engine | L13 | COMPLETE | Boa (Rust-native) - Full implementation with DOM bindings, event handling, sandbox |
-| Servo Integration | L20 | Research phase | Per FabricOS README: AI-Native Loom is priority, Servo is compatibility fallback |
+| AI-Native vs Traditional Mode Split | L2 (design) / L18 (implementation) | **Complete** | AI-Native is differentiator; Traditional is daily driver |
+| JavaScript Engine | L13 | COMPLETE | Boa (Rust-native) for initial implementation |
+| JavaScript Engine (Traditional) | L23 | Planned | V8 with JIT for Traditional mode performance parity |
+| Servo Integration | L20 | **Decision Made** | Continue custom engine; Traditional mode gets full investment |
 | Voice STT Backend | L12.5 | UNDECIDED | Local Whisper (privacy, offline) vs Web Speech API (cloud) |
-| Media Codec Strategy | L14 | COMPLETE | Software decode (rav1d + symphonia), hardware acceleration deferred per spec |
+| Media Codec Strategy | L14 | COMPLETE | Software decode (rav1d + symphonia), hardware acceleration L16.5 |
+| Full Codec Stack | L26 | Planned | H.265/HEVC, Dolby, DTS for streaming parity |
 
 ---
 
@@ -58,12 +112,12 @@ AI-Native web browser for FabricOS. Dual-mode architecture: Traditional (full we
 
 Per FabricOS README, Tier 3 (System Completion) requires:
 
-1. Linux VM runs dev tools (Phase 17) — Loom runs windowed
-2. Gaming playable via cloud streaming (Phase 18)
-3. AI marketplace live (Phase 19)
-4. Servo decision made (Phase 20) — Loom L20
+1. Linux VM runs dev tools (Phase 17) — Loom runs windowed ✓
+2. Gaming playable via cloud streaming (Phase 18) — WebGL support L17 ✓
+3. AI marketplace live (Phase 19) — AI-Native mode L18 ✓
+4. Servo decision made (Phase 20) — Continue custom engine L20 ✓
 
-Loom "Feature Complete" for Tier 3: After L20 (Servo Investigation) when decision is implemented.
+**Loom "Feature Complete" for Tier 3: L22 (Daily Driver)**
 
 ---
 
@@ -72,11 +126,11 @@ Loom "Feature Complete" for Tier 3: After L20 (Servo Investigation) when decisio
 | Range | Status | Count |
 |:---|:---|:---|
 | L0-L16.5 | Complete | 17 phases |
-| L12.5 | Ready to implement | 1 phase |
-| L17-L22 | Planned, awaiting implementation | 6 phases |
+| L17-L22 | **Complete** | 6 phases |
+| L23-L28 | Planned, awaiting implementation | 6 phases |
 
-Latest Completed: L16.5 (Hardware Media Acceleration)
-Next Up: L17 (WebGL/GPU Acceleration)
+Latest Completed: L22 (Daily Driver)
+Next Up: L23 (V8 Integration)
 
 ---
 
@@ -86,24 +140,24 @@ Next Up: L17 (WebGL/GPU Acceleration)
 
 | Crate | Status | Purpose |
 |:---|:---|:---|
-| loom-core | Exists | Colors, geometry, text, BrowserMode enum, Temperature |
-| loom-layout | Exists | HTML/CSS/DOM, navigation, forms, hit-testing |
-| loom-media | Exists | Image decoding (PNG/JPEG/WebP/GIF), caching |
+| loom-core | Complete | Colors, geometry, text, BrowserMode, tab_manager, battery, session_restore, auto_update, onboarding |
+| loom-layout | Complete | HTML/CSS/DOM, navigation, forms, hit-testing, virtual_scroll, layout_cache, lazy_image, resource_priority, css_grid |
+| loom-media | Complete | Image decoding, video/audio playback, hardware acceleration |
+| loom-js | Complete | JavaScript engine (Boa), DOM bindings, sandbox, gc_tuning |
+| loom-security | Complete | CSP, sandboxing, permissions |
+| loom-webgl | Complete | WebGL context, wgpu integration |
+| loom-ai | Complete | Intent parser, chrome, agent integration, voice stub |
+| loom-devtools | Complete | Console, element inspector, network monitor |
+| loom-extensions | Complete | Manifest V3, content scripts, browser.tabs API |
 
 ### Planned Crates
 
 | Crate | Phase | Purpose |
 |:---|:---|:---|
-| loom-voice | L12.5 | STT integration, microphone handling, waveform UI |
-| loom-js | L13 | JavaScript engine bindings (Boa or V8) |
-| loom-video | L14 | Video/audio playback, streaming - COMPLETE in loom-media |
-| loom-security | L15 | CSP, sandboxing, permission management |
-| loom-accessibility | L16 | Screen reader, ARIA, keyboard navigation |
-| loom-webgl | L17 | WebGL context, wgpu integration |
-| loom-ai | L18 | Intent parser, agent integration |
-| loom-render | — | wgpu rendering abstraction |
-| loom-chrome | — | UI chrome, mode system |
-| loom-content | — | HTTP client (currently in main.rs) |
+| loom-v8 | L23 | V8 JavaScript engine integration (Traditional mode) |
+| loom-wasm | L24 | WebAssembly runtime and compiler |
+| loom-serviceworker | L25 | Service Worker background execution |
+| loom-webrtc | L27 | WebRTC peer-to-peer video/data |
 
 ---
 
@@ -127,6 +181,7 @@ Next Up: L17 (WebGL/GPU Acceleration)
 | L7-L12 | 85/100 | HTTPS works, interactive, forms functional |
 | L12.5-L16 | 85/100 | Voice input works, JS executes, accessible |
 | L17-L22 | 90/100 | 3D renders, AI mode works, daily driver ready |
+| L23-L28 | 95/100 | Chrome parity, full web compatibility |
 
 ---
 
@@ -136,3 +191,4 @@ Next Up: L17 (WebGL/GPU Acceleration)
 - STRESS = System Threat Resilience & Extreme Stress Suite
 - Phase numbering uses decimals (L12.5) for sub-phases
 - All phases track against FabricOS Tier 3 completion
+- **ROADMAP v2.0**: Extended Traditional mode scope with L23-L28 for full daily driver parity

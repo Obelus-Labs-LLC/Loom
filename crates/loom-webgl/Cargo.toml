@@ -28,6 +28,3 @@ log = "0.4"
 
 # Byte manipulation for GPU buffers
 bytemuck = { version = "1.14", features = ["derive"] }
-
-[dev-dependencies]
-wgpu-test = "0.19"
