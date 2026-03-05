@@ -68,6 +68,7 @@ mod fabric_os {
     use super::*;
     use os::fabricsys::*;
     use loom_layout::navigation::{NavigationHistory, UrlResolver, VisitedUrls, CursorType, link_styles};
+    use loom_layout::forms::{FormManager, Form, FormMethod, InputState, InputType};
     use alloc::format;
     use alloc::vec;
     use alloc::vec::Vec;
@@ -107,6 +108,7 @@ mod fabric_os {
     pub enum BrowserMode {
         Viewing,      // Normal page viewing with scroll
         UrlEditing,   // URL bar focused for input
+        FormInput,    // HTML form input focused (Phase L12)
         Loading,      // Page loading in progress
         Error,        // Error page displayed
     }
@@ -129,6 +131,8 @@ mod fabric_os {
         pub visited_urls: VisitedUrls,
         /// Current cursor type (Phase L11)
         pub cursor: CursorType,
+        /// Form manager (Phase L12)
+        pub form_manager: FormManager,
         /// Dynamic dimensions
         pub width: u32,
         pub height: u32,
@@ -152,6 +156,7 @@ mod fabric_os {
                 url_resolver: UrlResolver::new(initial_url),
                 visited_urls: VisitedUrls::new(),
                 cursor: CursorType::Default,
+                form_manager: FormManager::new(),
                 width: WINDOW_WIDTH,
                 height: WINDOW_HEIGHT,
                 margin_x: 20,
@@ -326,6 +331,7 @@ mod fabric_os {
         match browser.mode {
             BrowserMode::Viewing => handle_viewing_key(key, browser, display),
             BrowserMode::UrlEditing => handle_url_editing_key(key, browser, display),
+            BrowserMode::FormInput => handle_form_input_key(key, browser, display),
             BrowserMode::Loading => {
                 // Ignore keys during loading, or allow cancel
                 if key == Key::Escape {
@@ -352,12 +358,24 @@ mod fabric_os {
             Key::Home => browser.scroll_offset = 0,
             Key::End => browser.scroll_offset = browser.content_lines.len().saturating_sub(MAX_LINES),
             
-            // URL bar focus
-            Key::Tab | Key::Ascii(b'l') | Key::Ascii(b'L') => {
+            // URL bar focus (L key, not Tab - Tab is for forms)
+            Key::Ascii(b'l') | Key::Ascii(b'L') => {
                 browser.mode = BrowserMode::UrlEditing;
                 browser.url_buffer = browser.url.clone();
                 browser.cursor_pos = browser.url_buffer.len();
                 browser.status_message = String::from("Edit URL, press Enter to navigate");
+            }
+            
+            // Tab enters form input mode if forms exist
+            Key::Tab => {
+                if !browser.form_manager.forms.is_empty() {
+                    browser.mode = BrowserMode::FormInput;
+                    browser.form_manager.set_active_form("demo");
+                    if let Some(form) = browser.form_manager.active_form_mut() {
+                        form.focus_next();
+                    }
+                    browser.status_message = String::from("Form input mode. Tab: next field, Enter: submit, Esc: cancel");
+                }
             }
             
             // Navigation
@@ -438,6 +456,90 @@ mod fabric_os {
         
         display.render_browser(browser);
         display.present();
+    }
+    
+    /// Handle keys in form input mode (Phase L12)
+    fn handle_form_input_key(key: Key, browser: &mut Browser, display: &mut Display) {
+        use loom_layout::forms::FormSubmission;
+        
+        match key {
+            Key::Enter => {
+                // Submit form
+                if let Some(submission) = browser.form_manager.handle_enter() {
+                    browser.mode = BrowserMode::Loading;
+                    browser.status_message = format!("Submitting form to {}...", submission.url);
+                    display.render_browser(browser);
+                    display.present();
+                    
+                    // Handle form submission
+                    submit_form(browser, display, submission);
+                }
+            }
+            Key::Escape => {
+                // Blur form and return to viewing
+                browser.form_manager.handle_escape();
+                browser.mode = BrowserMode::Viewing;
+                browser.status_message = String::from("Form cancelled");
+                display.render_browser(browser);
+                display.present();
+            }
+            Key::Tab => {
+                // Tab to next field (Shift+Tab handled by checking shift state if available)
+                browser.form_manager.handle_tab(false);
+                browser.status_message = String::from("Tab: Next field");
+            }
+            Key::Backspace => {
+                browser.form_manager.handle_backspace();
+            }
+            Key::Delete => {
+                browser.form_manager.handle_delete();
+            }
+            Key::Left => {
+                browser.form_manager.handle_cursor_left(false);
+            }
+            Key::Right => {
+                browser.form_manager.handle_cursor_right(false);
+            }
+            Key::Home => {
+                browser.form_manager.handle_cursor_home(false);
+            }
+            Key::End => {
+                browser.form_manager.handle_cursor_end(false);
+            }
+            Key::Ascii(b' ') => {
+                // Space toggles checkboxes
+                browser.form_manager.handle_space();
+            }
+            Key::Ascii(c) => {
+                // Regular character input
+                browser.form_manager.handle_char(c as char);
+            }
+            _ => {}
+        }
+        
+        display.render_browser(browser);
+        display.present();
+    }
+    
+    /// Submit a form (Phase L12)
+    fn submit_form(browser: &mut Browser, display: &mut Display, submission: loom_layout::forms::FormSubmission) {
+        use loom_layout::forms::FormMethod;
+        
+        // Resolve the action URL
+        let url = browser.url_resolver.resolve(&submission.url);
+        
+        // For GET, the URL already has query params
+        // For POST, we need to send the body
+        if submission.method == FormMethod::Post {
+            // TODO: Implement POST request with body
+            // For now, just navigate to the URL
+            browser.navigate(&url);
+            load_page(browser, display);
+        } else {
+            // GET request - URL already has query params
+            browser.navigate(&url);
+            load_page(browser, display);
+        }
     }
     
     /// Load page content
@@ -536,6 +638,11 @@ mod fabric_os {
             browser.page_title = title;
         }
         
+        // Initialize demo form for testing (Phase L12)
+        // In production, this would parse forms from HTML
+        browser.form_manager = FormManager::new();
+        browser.form_manager.add_form(create_demo_form());
+        
         display.render_browser(browser);
         display.present();
     }
@@ -548,6 +655,33 @@ mod fabric_os {
         browser.status_message = format!("Error: {}", title);
         display.render_browser(browser);
         display.present();
+    }
+    
+    /// Create a demo login form for testing (Phase L12)
+    fn create_demo_form() -> Form {
+        let mut form = Form::new("demo")
+            .with_action("/login")
+            .with_method(FormMethod::Post);
+        
+        // Username field
+        form.add_input(InputState::new("username", InputType::Text)
+            .with_placeholder("Enter username")
+            .with_required(true));
+        
+        // Password field
+        form.add_input(InputState::new("password", InputType::Password)
+            .with_placeholder("Enter password")
+            .with_required(true));
+        
+        // Remember me checkbox
+        form.add_input(InputState::new("remember", InputType::Checkbox)
+            .with_value("yes"));
+        
+        // Submit button
+        form.add_input(InputState::new("submit", InputType::Submit)
+            .with_value("Login"));
+        
+        form
     }
     
     /// Parse URL into (is_https, host, path)
@@ -664,6 +798,7 @@ mod fabric_os {
             // URL bar background
             let bg_color = match browser.mode {
                 BrowserMode::UrlEditing => C_WARM_100,
+                BrowserMode::FormInput => C_INFO, // Blue tint for form mode
                 _ => C_MID_GRAY,
             };
             draw_rect(self.buffer, self.width, 0, 0, self.width, URL_BAR_HEIGHT, bg_color);

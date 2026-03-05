@@ -1,11 +1,12 @@
 //! Loom Layout Engine - CSS layout implementation
 //!
-//! Phase L11: Links and Navigation
+//! Phase L12: Forms
 //! - CSS parsing and style computation
 //! - Block layout, flexbox, positioning
 //! - Box tree construction
 //! - Layout pass and paint preparation
 //! - Hit-testing and navigation
+//! - HTML forms with validation
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
@@ -18,6 +19,7 @@ pub mod dom;
 pub mod style;
 pub mod navigation;
 pub mod hittest;
+pub mod forms;
 
 // Re-export main types
 pub use css_types::*;
@@ -26,9 +28,10 @@ pub use layout_engine::*;
 pub use dom::*;
 pub use navigation::*;
 pub use hittest::*;
+pub use forms::*;
 
 /// Version info
-pub const VERSION: &str = "0.1.0-L9";
+pub const VERSION: &str = "0.1.0-L12";
 
 /// Build layout tree from HTML document and CSS
 pub fn build_and_layout(html: &str, css: Option<&str>, viewport_width: f32, viewport_height: f32) -> LayoutNode {
