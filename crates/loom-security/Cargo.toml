@@ -18,7 +18,7 @@ url = { version = "2.5", default-features = false }
 base64 = { version = "0.22", default-features = false, features = ["alloc"] }
 
 # Hash maps
-hashbrown = { version = "0.14", default-features = false }
+hashbrown = { version = "0.14", default-features = false, features = ["ahash"] }
 
 # Regex for CSP parsing (std only)
 regex = { version = "1.10", optional = true }

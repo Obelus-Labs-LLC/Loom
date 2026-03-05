@@ -10,7 +10,7 @@
 
 extern crate alloc;
 
-use alloc::collections::HashMap;
+use hashbrown::HashMap;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
@@ -272,7 +272,7 @@ impl PermissionManager {
     pub fn get_origin_permissions(&self, origin: &str) -> Vec<(Permission, PermissionState)> {
         self.permissions
             .get(origin)
-            .map(|p| p.iter().map(|(&k, &v)| (k, v)).collect())
+            .map(|p: &HashMap<Permission, PermissionState>| p.iter().map(|(&k, &v)| (k, v)).collect())
             .unwrap_or_default()
     }
 
