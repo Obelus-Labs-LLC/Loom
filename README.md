@@ -186,6 +186,8 @@ let rect = TensionRect::new(x, y, width, height)
 
 ## Current Status
 
+See [ROADMAP.md](ROADMAP.md) for the complete L0-L22 phase breakdown.
+
 | Phase | Feature | Status |
 |-------|---------|--------|
 | L0 | Bootstrap, window opening | ✅ Complete |
@@ -201,10 +203,17 @@ let rect = TensionRect::new(x, y, width, height)
 | L10 | Image decoding (PNG/JPEG/WebP) | ✅ Complete |
 | L11 | Links and Navigation | ✅ Complete |
 | L12 | HTML Forms | ✅ Complete |
+| L12.5 | Voice Input | 🔄 Ready to implement |
 | L13 | JavaScript engine | 📋 Planned |
-| L13 | Media playback | 📋 Planned |
-| L14 | Security integration | 📋 Planned |
-| L15 | Polish, daily driver | 📋 Planned |
+| L14 | Media playback | 📋 Planned |
+| L15 | Security integration | 📋 Planned |
+| L16 | Accessibility | 📋 Planned |
+| L17 | WebGL/GPU | 📋 Planned |
+| L18 | AI-Native Mode | 📋 Planned |
+| L19 | Performance optimization | 📋 Planned |
+| L20 | Servo Investigation | 📋 Planned |
+| L21 | Traditional Mode polish | 📋 Planned |
+| L22 | Daily driver | 📋 Planned |
 
 ## Testing on FabricOS
 
