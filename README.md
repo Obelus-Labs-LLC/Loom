@@ -28,9 +28,11 @@ A Rust-native browser built for the [FabricOS](https://github.com/Obelus-Labs-LL
 
 ## Features
 
-### Dual Mode System
+### Dual Mode System (Figma Design Implemented)
 - **Traditional Mode**: Dense, familiar browser UI with tabs, address bar, and navigation controls
-- **AI-Assisted Mode**: Spacious, intent-driven interface with floating input and minimal chrome
+- **AI-Native Mode**: Spacious, intent-driven interface with floating input and minimal chrome
+- **Mode Toggle**: Press `M` to switch between Traditional and AI-Native modes
+- **Visual Feedback**: Mode indicator in toolbar, distinct layouts for each mode
 
 ### Design System
 - **Chromatic Temperature**: UI adapts to time of day (Warm/Amber morning, Neutral afternoon, Cool/Indigo evening)
@@ -240,6 +242,22 @@ Expected output:
 - Interactive browsing: scroll, URL editing, navigation
 - HTTPS support: TLS 1.3 handshake with example.com
 - Window can be moved, resized, focused with Alt+Tab
+
+## Keyboard Shortcuts
+
+| Key | Action |
+|:---|:---|
+| `↑/↓` | Scroll up/down |
+| `PgUp/PgDn` | Page up/down |
+| `Home/End` | Scroll to top/bottom |
+| `L` | Focus URL bar |
+| `Tab` | Enter form input mode (when forms present) |
+| `M` | Toggle between Traditional and AI-Native mode |
+| `B` | Go back |
+| `F` | Go forward |
+| `R` | Reload page |
+| `Enter` | Navigate to URL / Submit form |
+| `Esc` | Cancel editing / Exit form mode |
 
 ## License
 

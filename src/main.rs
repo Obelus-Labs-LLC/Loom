@@ -103,14 +103,45 @@ mod fabric_os {
     pub const CONTENT_WIDTH: u32 = SCREEN_WIDTH - 2 * MARGIN_X;
     pub const MAX_LINES: usize = ((SCREEN_HEIGHT - MARGIN_Y - STATUS_HEIGHT - 10) / LINE_HEIGHT) as usize;
     
-    /// Browser modes
+    /// Input modes for browser interaction
     #[derive(Debug, Clone, Copy, PartialEq)]
-    pub enum BrowserMode {
+    pub enum InputMode {
         Viewing,      // Normal page viewing with scroll
         UrlEditing,   // URL bar focused for input
         FormInput,    // HTML form input focused (Phase L12)
         Loading,      // Page loading in progress
         Error,        // Error page displayed
+    }
+    
+    /// UI Mode - Traditional vs AI-Assisted (from Figma design)
+    #[derive(Debug, Clone, Copy, PartialEq, Default)]
+    pub enum UiMode {
+        #[default]
+        Traditional,  // Dense layout with full chrome
+        AiNative,     // Minimal chrome, floating input
+    }
+    
+    /// Chromatic temperature for UI theming
+    #[derive(Debug, Clone, Copy, PartialEq, Default)]
+    pub enum Temperature {
+        #[default]
+        Auto,
+        Warm,
+        Cool,
+        Neutral,
+    }
+    
+    impl Temperature {
+        /// Resolve auto temperature based on time
+        pub fn resolve(&self) -> Self {
+            match self {
+                Temperature::Auto => {
+                    // Default to warm for morning-like feel
+                    Temperature::Warm
+                }
+                other => *other,
+            }
+        }
     }
     
     /// Browser state with dynamic sizing
@@ -119,7 +150,16 @@ mod fabric_os {
         pub page_title: String,
         pub content_lines: Vec<String>,
         pub scroll_offset: usize,
-        pub mode: BrowserMode,
+        /// Input mode for interaction state
+        pub input_mode: InputMode,
+        /// UI mode - Traditional or AI-Native (Figma design)
+        pub ui_mode: UiMode,
+        /// Global UI mode setting
+        pub global_ui_mode: UiMode,
+        /// Per-window UI mode override
+        pub ui_mode_override: bool,
+        /// Chromatic temperature
+        pub temperature: Temperature,
         pub url_buffer: String,
         pub cursor_pos: usize,
         pub status_message: String,
@@ -148,7 +188,11 @@ mod fabric_os {
                 page_title: String::new(),
                 content_lines: Vec::new(),
                 scroll_offset: 0,
-                mode: BrowserMode::Viewing,
+                input_mode: InputMode::Viewing,
+                ui_mode: UiMode::Traditional,
+                global_ui_mode: UiMode::Traditional,
+                ui_mode_override: false,
+                temperature: Temperature::Auto,
                 url_buffer: String::from(initial_url),
                 cursor_pos: 19,
                 status_message: String::from("Ready"),
@@ -162,6 +206,26 @@ mod fabric_os {
                 margin_x: 20,
                 margin_y: 70,
             }
+        }
+        
+        /// Get current UI mode (with override support)
+        pub fn current_ui_mode(&self) -> UiMode {
+            if self.ui_mode_override {
+                match self.global_ui_mode {
+                    UiMode::Traditional => UiMode::AiNative,
+                    UiMode::AiNative => UiMode::Traditional,
+                }
+            } else {
+                self.global_ui_mode
+            }
+        }
+        
+        /// Toggle between Traditional and AI-Native modes
+        pub fn toggle_ui_mode(&mut self) {
+            self.global_ui_mode = match self.global_ui_mode {
+                UiMode::Traditional => UiMode::AiNative,
+                UiMode::AiNative => UiMode::Traditional,
+            };
         }
         
         pub fn set_content_area(&mut self, width: u32, height: u32) {
@@ -190,7 +254,7 @@ mod fabric_os {
             self.url = resolved.clone();
             self.url_buffer = resolved.clone();
             self.cursor_pos = self.url.len();
-            self.mode = BrowserMode::Loading;
+            self.mode = InputMode::Loading;
             self.status_message = format!("Loading {}...", url);
             
             // Update URL resolver base for subsequent relative links
@@ -319,7 +383,7 @@ mod fabric_os {
             }
             
             // Re-render if in viewing mode (for smooth scroll)
-            if browser.mode == BrowserMode::Viewing {
+            if browser.input_mode == InputMode::Viewing {
                 display.render_browser(&browser);
                 display.present();
             }
@@ -328,19 +392,19 @@ mod fabric_os {
     
     /// Handle keyboard input based on current mode
     fn handle_key(key: Key, browser: &mut Browser, display: &mut Display) {
-        match browser.mode {
-            BrowserMode::Viewing => handle_viewing_key(key, browser, display),
-            BrowserMode::UrlEditing => handle_url_editing_key(key, browser, display),
-            BrowserMode::FormInput => handle_form_input_key(key, browser, display),
-            BrowserMode::Loading => {
+        match browser.input_mode {
+            InputMode::Viewing => handle_viewing_key(key, browser, display),
+            InputMode::UrlEditing => handle_url_editing_key(key, browser, display),
+            InputMode::FormInput => handle_form_input_key(key, browser, display),
+            InputMode::Loading => {
                 // Ignore keys during loading, or allow cancel
                 if key == Key::Escape {
-                    browser.mode = BrowserMode::Viewing;
+                    browser.input_mode = InputMode::Viewing;
                 }
             }
-            BrowserMode::Error => {
+            InputMode::Error => {
                 // Any key returns to viewing
-                browser.mode = BrowserMode::Viewing;
+                browser.input_mode = InputMode::Viewing;
                 display.render_browser(browser);
                 display.present();
             }
@@ -360,7 +424,7 @@ mod fabric_os {
             
             // URL bar focus (L key, not Tab - Tab is for forms)
             Key::Ascii(b'l') | Key::Ascii(b'L') => {
-                browser.mode = BrowserMode::UrlEditing;
+                browser.input_mode = InputMode::UrlEditing;
                 browser.url_buffer = browser.url.clone();
                 browser.cursor_pos = browser.url_buffer.len();
                 browser.status_message = String::from("Edit URL, press Enter to navigate");
@@ -369,7 +433,7 @@ mod fabric_os {
             // Tab enters form input mode if forms exist
             Key::Tab => {
                 if !browser.form_manager.forms.is_empty() {
-                    browser.mode = BrowserMode::FormInput;
+                    browser.input_mode = InputMode::FormInput;
                     browser.form_manager.set_active_form("demo");
                     if let Some(form) = browser.form_manager.active_form_mut() {
                         form.focus_next();
@@ -398,6 +462,16 @@ mod fabric_os {
                 }
             }
             
+            // Mode toggle (M) - Switch between Traditional and AI-Native
+            Key::Ascii(b'm') | Key::Ascii(b'M') => {
+                browser.toggle_ui_mode();
+                let mode_name = match browser.global_ui_mode {
+                    UiMode::Traditional => "Traditional",
+                    UiMode::AiNative => "AI-Native",
+                };
+                browser.status_message = format!("Switched to {} mode", mode_name);
+            }
+            
             _ => {}
         }
         
@@ -416,7 +490,7 @@ mod fabric_os {
             }
             Key::Escape => {
                 // Cancel editing
-                browser.mode = BrowserMode::Viewing;
+                browser.input_mode = InputMode::Viewing;
                 browser.url_buffer = browser.url.clone();
                 browser.status_message = String::from("Cancelled");
                 display.render_browser(browser);
@@ -466,7 +540,7 @@ mod fabric_os {
             Key::Enter => {
                 // Submit form
                 if let Some(submission) = browser.form_manager.handle_enter() {
-                    browser.mode = BrowserMode::Loading;
+                    browser.input_mode = InputMode::Loading;
                     browser.status_message = format!("Submitting form to {}...", submission.url);
                     display.render_browser(browser);
                     display.present();
@@ -478,7 +552,7 @@ mod fabric_os {
             Key::Escape => {
                 // Blur form and return to viewing
                 browser.form_manager.handle_escape();
-                browser.mode = BrowserMode::Viewing;
+                browser.input_mode = InputMode::Viewing;
                 browser.status_message = String::from("Form cancelled");
                 display.render_browser(browser);
                 display.present();
@@ -544,7 +618,7 @@ mod fabric_os {
     
     /// Load page content
     fn load_page(browser: &mut Browser, display: &mut Display) {
-        browser.mode = BrowserMode::Loading;
+        browser.input_mode = InputMode::Loading;
         display.render_browser(browser);
         display.present();
         
@@ -630,7 +704,7 @@ mod fabric_os {
         // Push to history (only for successful loads, not redirects)
         browser.nav_history.push(&browser.url, Some(&browser.page_title));
         browser.visited_urls.mark_visited(&browser.url);
-        browser.mode = BrowserMode::Viewing;
+        browser.input_mode = InputMode::Viewing;
         browser.status_message = format!("Loaded {} ({} bytes)", browser.url, response.len());
         
         // Try to extract title
@@ -649,7 +723,7 @@ mod fabric_os {
     
     /// Show error page
     fn show_error(browser: &mut Browser, display: &mut Display, title: &str, detail: &str) {
-        browser.mode = BrowserMode::Error;
+        browser.input_mode = InputMode::Error;
         browser.page_title = title.to_string();
         browser.set_content(&format!("{}\n\n{}", title, detail));
         browser.status_message = format!("Error: {}", title);
@@ -773,14 +847,14 @@ mod fabric_os {
             self.draw_url_bar(browser);
             
             // Draw content area
-            match browser.mode {
-                BrowserMode::Viewing | BrowserMode::Loading => {
+            match browser.input_mode {
+                InputMode::Viewing | InputMode::Loading => {
                     self.draw_content(browser);
                 }
-                BrowserMode::Error => {
+                InputMode::Error => {
                     self.draw_error_content(browser);
                 }
-                BrowserMode::UrlEditing => {
+                InputMode::UrlEditing => {
                     self.draw_content(browser);
                 }
             }
@@ -795,22 +869,30 @@ mod fabric_os {
         }
         
         fn draw_url_bar(&mut self, browser: &Browser) {
+            match browser.current_ui_mode() {
+                UiMode::Traditional => self.draw_traditional_chrome(browser),
+                UiMode::AiNative => self.draw_ai_chrome(browser),
+            }
+        }
+        
+        /// Draw Traditional mode chrome (dense layout from Figma)
+        fn draw_traditional_chrome(&mut self, browser: &Browser) {
             // URL bar background
-            let bg_color = match browser.mode {
-                BrowserMode::UrlEditing => C_WARM_100,
-                BrowserMode::FormInput => C_INFO, // Blue tint for form mode
+            let bg_color = match browser.input_mode {
+                InputMode::UrlEditing => C_WARM_100,
+                InputMode::FormInput => C_INFO, // Blue tint for form mode
                 _ => C_MID_GRAY,
             };
             draw_rect(self.buffer, self.width, 0, 0, self.width, URL_BAR_HEIGHT, bg_color);
             
             // URL text
-            let url_text = match browser.mode {
-                BrowserMode::UrlEditing => &browser.url_buffer,
+            let url_text = match browser.input_mode {
+                InputMode::UrlEditing => &browser.url_buffer,
                 _ => &browser.url,
             };
             
-            let text_color = match browser.mode {
-                BrowserMode::UrlEditing => C_BLACK,
+            let text_color = match browser.input_mode {
+                InputMode::UrlEditing => C_BLACK,
                 _ => C_WHITE,
             };
             
@@ -818,15 +900,16 @@ mod fabric_os {
             draw_text(self.buffer, self.width, 10, 18, url_text, text_color);
             
             // Draw cursor in edit mode
-            if browser.mode == BrowserMode::UrlEditing {
+            if browser.input_mode == InputMode::UrlEditing {
                 let cursor_x = 10 + (browser.cursor_pos as u32 * CHAR_WIDTH);
                 draw_rect(self.buffer, self.width, cursor_x, 16, 2, 18, C_INFO);
             }
             
             // Draw navigation buttons (positioned relative to window width)
-            let back_x = self.width.saturating_sub(180);
-            let forward_x = self.width.saturating_sub(120);
-            let reload_x = self.width.saturating_sub(60);
+            let back_x = self.width.saturating_sub(220);
+            let forward_x = self.width.saturating_sub(160);
+            let reload_x = self.width.saturating_sub(100);
+            let mode_x = self.width.saturating_sub(50);
             
             // Back button (enabled if can go back)
             draw_text(self.buffer, self.width, back_x, 18, "[<]", 
@@ -839,8 +922,63 @@ mod fabric_os {
             // Reload button
             draw_text(self.buffer, self.width, reload_x, 18, "[R]", C_OFF_WHITE);
             
+            // Mode toggle button (M)
+            let mode_label = match browser.global_ui_mode {
+                UiMode::Traditional => "[M]",
+                UiMode::AiNative => "[AI]",
+            };
+            draw_text(self.buffer, self.width, mode_x, 18, mode_label, C_WARM_500);
+            
             // Separator line
             draw_rect(self.buffer, self.width, 0, URL_BAR_HEIGHT, self.width, 2, C_WARM_600);
+        }
+        
+        /// Draw AI-Native mode chrome (minimal from Figma)
+        fn draw_ai_chrome(&mut self, browser: &Browser) {
+            // Minimal top bar - just background
+            draw_rect(self.buffer, self.width, 0, 0, self.width, 40, C_DARK_GRAY);
+            
+            // "Loom" logo on left
+            draw_text(self.buffer, self.width, 20, 12, "Loom", C_OFF_WHITE);
+            
+            // Mode toggle on right
+            let mode_x = self.width.saturating_sub(100);
+            draw_text(self.buffer, self.width, mode_x, 12, "[Traditional]", C_WARM_500);
+            
+            // Settings button
+            let settings_x = self.width.saturating_sub(20);
+            draw_text(self.buffer, self.width, settings_x, 12, "[S]", C_OFF_WHITE);
+            
+            // Floating centered address bar (simplified - just centered input area)
+            let bar_width = self.width.saturating_sub(200).min(600);
+            let bar_x = (self.width - bar_width) / 2;
+            let bar_y = 100; // Floating lower
+            
+            // AI mode input background
+            draw_rect(self.buffer, self.width, bar_x, bar_y, bar_width, 40, C_MID_GRAY);
+            
+            // Placeholder text in "hand" style (using normal font for now)
+            let placeholder = if browser.url.is_empty() {
+                "What do you want to find?"
+            } else {
+                &browser.url
+            };
+            draw_text(self.buffer, self.width, bar_x + 20, bar_y + 12, placeholder, C_OFF_WHITE);
+            
+            // Dimmed content area below
+            if !browser.content_lines.is_empty() {
+                let content_y = bar_y + 60;
+                let visible_lines = browser.content_lines.iter()
+                    .skip(browser.scroll_offset)
+                    .take(5); // Show fewer lines in AI mode
+                
+                let mut y = content_y;
+                for line in visible_lines {
+                    // Dimmed text (using gray instead of white)
+                    draw_text(self.buffer, self.width, browser.margin_x, y, line, C_LIGHT_GRAY);
+                    y += LINE_HEIGHT;
+                }
+            }
         }
         
         fn draw_content(&mut self, browser: &Browser) {
@@ -856,7 +994,7 @@ mod fabric_os {
             }
             
             // Loading indicator
-            if browser.mode == BrowserMode::Loading {
+            if browser.input_mode == InputMode::Loading {
                 let msg = "Loading...";
                 let msg_width = msg.len() as u32 * CHAR_WIDTH;
                 let x = (self.width.saturating_sub(msg_width)) / 2;
