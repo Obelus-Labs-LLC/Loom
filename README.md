@@ -240,8 +240,6 @@ See [ROADMAP.md](ROADMAP.md) for the complete v5.0 roadmap.
 
 | Phase | Feature | Status |
 |-------|---------|--------|
-| BUILD-FIX | Workspace Clean | ⏳ In Progress |
-| L29-PERF | Performance Baseline | ⏳ Next |
 | L23 | V8 Integration | 📋 Planned (FabricOS L13.7) |
 
 ## Testing on FabricOS
