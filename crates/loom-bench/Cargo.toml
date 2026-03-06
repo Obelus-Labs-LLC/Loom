@@ -1,0 +1,18 @@
+[package]
+name = "loom-bench"
+version = "0.1.0-L29"
+edition = "2021"
+rust-version = "1.75"
+authors = ["Loom Team"]
+description = "Performance benchmarking for Loom browser - FPS counters, frame time histograms"
+license = "GPL-3.0"
+
+[features]
+default = ["std"]
+std = []
+
+[dependencies]
+loom-core = { path = "../loom-core", default-features = false }
+
+[dev-dependencies]
+# Testing utilities

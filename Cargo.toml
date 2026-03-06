@@ -26,6 +26,7 @@ members = [
     "crates/loom-serviceworker", # L25: Service Workers (no_std)  
     "crates/loom-webrtc",     # L27: WebRTC peer-to-peer (no_std)
     "crates/loom-a11y",
+    "crates/loom-bench",      # L29: Performance benchmarking
 ]
 resolver = "2"
 
