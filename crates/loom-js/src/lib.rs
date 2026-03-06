@@ -53,6 +53,7 @@ pub mod boa_impl;
 #[cfg(feature = "v8-engine")]
 pub mod v8_impl;
 pub mod external_v8;
+pub mod fabricos_v8;
 
 // Re-export commonly used types
 pub use engine::{JSEngine, JSEngineConfig, JSResult as LegacyJSResult};
@@ -71,6 +72,7 @@ pub use boa_impl::BoaJsEngine;
 #[cfg(feature = "v8-engine")]
 pub use v8_impl::V8Engine;
 pub use external_v8::{ExternalV8Engine, CapabilityToken};
+pub use fabricos_v8::{FabricOSV8Engine, init_v8_platform, shutdown_v8_platform};
 
 /// Version of the JavaScript engine
 pub const VERSION: &str = "0.3.0-L23";
