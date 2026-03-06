@@ -240,7 +240,7 @@ See [ROADMAP.md](ROADMAP.md) for the complete v5.0 roadmap.
 
 | Phase | Feature | Status |
 |-------|---------|--------|
-| L23 | V8 Integration | 📋 Planned (FabricOS L13.7) |
+| L23 | V8 Integration | ⏳ Ready (waiting for FabricOS L13.7) |
 
 ## Testing on FabricOS
 
