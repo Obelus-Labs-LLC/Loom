@@ -31,7 +31,7 @@ AI-native dual-mode browser for FabricOS.
 |:---|:---|:---|:---|
 | BUILD-FIX | Workspace Clean | ✅ Complete | All crates restored, 12/13 active |
 | L29-PERF | Performance Baseline | ✅ Complete | FPS counter, render profiler, test harness |
-| L29-FIBER | React Fiber Work Loop | 📋 Planned | Pausable rendering |
+| L29-FIBER | React Fiber Work Loop | ✅ Complete | Time-slicing, concurrent rendering, 60fps |
 | CONCIERGE | Chat Overlay | 📋 Planned | Zustand + localStorage |
 
 ## Short-Term (Next 4 Weeks)
